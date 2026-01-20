@@ -68,95 +68,21 @@ def sistem_kontrol():
         except:
             pass  # Sütun zaten varsa hata verme
         
-        # Pervin Hanım kullanıcısını oluştur (eğer yoksa) - Kurum Müdürü rolü
+        # İlk admin kullanıcısını oluştur (eğer yoksa)
+        cursor.execute("SELECT COUNT(*) FROM kullanicilar WHERE kullanici_adi = 'admin'")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                INSERT INTO kullanicilar (kullanici_adi, sifre, ad_soyad, rol, olusturma_tarihi, aktif)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, ("admin", "1234", "Sistem Yöneticisi", "admin", datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), 1))
+        
+        # Pervin Hanım kullanıcısını oluştur (eğer yoksa)
         cursor.execute("SELECT COUNT(*) FROM kullanicilar WHERE kullanici_adi = 'pervin'")
         if cursor.fetchone()[0] == 0:
             cursor.execute("""
                 INSERT INTO kullanicilar (kullanici_adi, sifre, ad_soyad, rol, olusturma_tarihi, aktif)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, ("pervin", "pervin123", "Pervin Hanım", "kurum_muduru", datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), 1))
-        
-        # Seans Takvimi Tablosu
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS seans_takvimi (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                tarih TEXT NOT NULL,
-                saat TEXT NOT NULL,
-                danisan_adi TEXT NOT NULL,
-                terapist TEXT NOT NULL,
-                oda TEXT,
-                durum TEXT DEFAULT 'planlandi',
-                notlar TEXT,
-                olusturma_tarihi TEXT,
-                olusturan_kullanici_id INTEGER,
-                FOREIGN KEY (olusturan_kullanici_id) REFERENCES kullanicilar(id)
-            )
-        """)
-        
-        # Danışan Bilgileri Tablosu
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS danisanlar (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                ad_soyad TEXT NOT NULL,
-                telefon TEXT,
-                email TEXT,
-                adres TEXT,
-                dogum_tarihi TEXT,
-                veli_adi TEXT,
-                veli_telefon TEXT,
-                notlar TEXT,
-                olusturma_tarihi TEXT,
-                aktif INTEGER DEFAULT 1
-            )
-        """)
-        
-        # Oda Yönetimi Tablosu
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS odalar (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                oda_adi TEXT UNIQUE NOT NULL,
-                oda_tipi TEXT,
-                kapasite INTEGER,
-                aciklama TEXT,
-                aktif INTEGER DEFAULT 1
-            )
-        """)
-        
-        # Varsayılan odaları ekle
-        cursor.execute("SELECT COUNT(*) FROM odalar")
-        if cursor.fetchone()[0] == 0:
-            odalar = [
-                ("Oyun Terapi Odası", "Terapi", 2, ""),
-                ("Ergoterapi Odası", "Terapi", 2, ""),
-                ("Büyük Oda", "Eğitim", 5, ""),
-                ("Küçük Oda", "Eğitim", 3, "")
-            ]
-            cursor.executemany("""
-                INSERT INTO odalar (oda_adi, oda_tipi, kapasite, aciklama, aktif)
-                VALUES (?, ?, ?, ?, 1)
-            """, odalar)
-        
-        # Görev Takibi Tablosu (Sekreterlik)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS gorevler (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                baslik TEXT NOT NULL,
-                aciklama TEXT,
-                atanan_kullanici_id INTEGER,
-                olusturan_kullanici_id INTEGER,
-                durum TEXT DEFAULT 'beklemede',
-                oncelik TEXT DEFAULT 'normal',
-                baslangic_tarihi TEXT,
-                bitis_tarihi TEXT,
-                tamamlanma_tarihi TEXT,
-                olusturma_tarihi TEXT,
-                FOREIGN KEY (atanan_kullanici_id) REFERENCES kullanicilar(id),
-                FOREIGN KEY (olusturan_kullanici_id) REFERENCES kullanicilar(id)
-            )
-        """)
-        
-        # Rol sistemi güncellemesi: Eski pervin_hanim rolünü kurum_muduru yap
-        cursor.execute("UPDATE kullanicilar SET rol = 'kurum_muduru' WHERE rol = 'pervin_hanim'")
+            """, ("pervin", "pervin123", "Pervin Hanım", "pervin_hanim", datetime.datetime.now().strftime("%Y-%m-%d %H:%M"), 1))
         
         conn.commit()
         conn.close()
@@ -188,6 +114,7 @@ class LoginPenceresi(ttk.Window):
 
         ttk.Label(frm, text="Kullanıcı Adı:").pack(anchor=W, pady=(0, 5))
         self.ent_user = ttk.Entry(frm, bootstyle="primary")
+        self.ent_user.insert(0, "admin")
         self.ent_user.pack(fill=X, pady=5)
         
         ttk.Label(frm, text="Şifre:").pack(anchor=W, pady=(10, 5))
@@ -197,7 +124,6 @@ class LoginPenceresi(ttk.Window):
         ttk.Button(frm, text="GİRİŞ YAP", bootstyle="success", command=self.giris_yap).pack(fill=X, pady=(20, 10))
         ttk.Button(frm, text="KAYIT OL", bootstyle="info-outline", command=self.kayit_ol_penceresi).pack(fill=X, pady=5)
         
-        ttk.Label(self, text="Varsayılan: pervin/pervin123", font=("Arial", 8), foreground="gray").pack(side=BOTTOM, pady=10)
 
     def giris_yap(self):
         kullanici_adi = self.ent_user.get().strip()
@@ -352,51 +278,10 @@ class AnaUygulama(ttk.Toplevel):
         self.geometry("1200x750")
         self.protocol("WM_DELETE_WINDOW", self.cikis_yap)
         
-        # Menü Çubuğu - Rol bazlı
+        # Menü Çubuğu
         menubar = ttk.Menu(self)
         self.config(menu=menubar)
         
-        # Kurum Müdürü için tüm modüller
-        if self.kullanici_rol in ["kurum_muduru", "admin"]:
-            # Seans Takvimi Modülü
-            seans_menu = ttk.Menu(menubar, tearoff=0)
-            menubar.add_cascade(label="Seans Takvimi", menu=seans_menu)
-            seans_menu.add_command(label="Günlük Takvim", command=self.seans_takvimi_goster)
-            seans_menu.add_command(label="Haftalık Takvim", command=self.haftalik_takvim_goster)
-            seans_menu.add_command(label="Yeni Seans Ekle", command=self.yeni_seans_ekle)
-            
-            # Sekreterlik Modülü
-            sekreter_menu = ttk.Menu(menubar, tearoff=0)
-            menubar.add_cascade(label="Sekreterlik", menu=sekreter_menu)
-            sekreter_menu.add_command(label="Danışan Yönetimi", command=self.danisan_yonetimi)
-            sekreter_menu.add_command(label="Randevu Yönetimi", command=self.randevu_yonetimi)
-            sekreter_menu.add_command(label="Görev Takibi", command=self.gorev_takibi)
-            
-            # Muhasebe Modülü
-            muhasebe_menu = ttk.Menu(menubar, tearoff=0)
-            menubar.add_cascade(label="Muhasebe", menu=muhasebe_menu)
-            muhasebe_menu.add_command(label="Ücret Takibi", command=self.ucret_takibi_goster)
-            muhasebe_menu.add_command(label="Gelir-Gider Raporu", command=self.gelir_gider_raporu)
-            muhasebe_menu.add_command(label="Ödeme İşlemleri", command=self.odeme_islemleri)
-            
-            # Kullanıcı Yönetimi
-            kullanici_menu = ttk.Menu(menubar, tearoff=0)
-            menubar.add_cascade(label="Kullanıcı Yönetimi", menu=kullanici_menu)
-            kullanici_menu.add_command(label="Kullanıcıları Listele", command=self.kullanicilari_listele)
-            kullanici_menu.add_command(label="Kullanıcı Sil", command=self.kullanici_sil)
-        
-        # Eğitim Görevlisi için sadece kendi seansları
-        elif self.kullanici_rol == "egitim_gorevlisi":
-            seans_menu = ttk.Menu(menubar, tearoff=0)
-            menubar.add_cascade(label="Seans Takvimi", menu=seans_menu)
-            seans_menu.add_command(label="Kendi Seanslarım", command=self.kendi_seanslarim)
-            seans_menu.add_command(label="Haftalık Takvim", command=self.haftalik_takvim_goster)
-            
-            muhasebe_menu = ttk.Menu(menubar, tearoff=0)
-            menubar.add_cascade(label="Ücret Takibi", menu=muhasebe_menu)
-            muhasebe_menu.add_command(label="Kendi Ücretlerim", command=self.kendi_ucretlerim)
-        
-        # Dosya İşlemleri (Tüm kullanıcılar için)
         dosya_menu = ttk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Dosya İşlemleri", menu=dosya_menu)
         dosya_menu.add_command(label="Excel'e Aktar", command=self.excel_aktar)
@@ -404,34 +289,21 @@ class AnaUygulama(ttk.Toplevel):
         dosya_menu.add_separator()
         dosya_menu.add_command(label="Çıkış", command=self.cikis_yap)
         
+        # Kullanıcı Yönetimi (Sadece Pervin Hanım için)
+        if self.kullanici_rol == "pervin_hanim":
+            kullanici_menu = ttk.Menu(menubar, tearoff=0)
+            menubar.add_cascade(label="Kullanıcı Yönetimi", menu=kullanici_menu)
+            kullanici_menu.add_command(label="Kullanıcıları Listele", command=self.kullanicilari_listele)
+            kullanici_menu.add_command(label="Kullanıcı Sil", command=self.kullanici_sil)
+        
         yardim_menu = ttk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Yardım", menu=yardim_menu)
         yardim_menu.add_command(label="Hakkında", command=self.hakkinda_goster)
 
-        # ANA DÜZEN - Rol bazlı gösterim
+        # ANA DÜZEN
         ana_panel = ttk.Frame(self, padding=10)
         ana_panel.pack(fill=BOTH, expand=True)
-        
-        # Kullanıcı bilgisi göster
-        kullanici_bilgi = ttk.Label(
-            ana_panel, 
-            text=f"Hoş Geldiniz: {kullanici[2] if kullanici else 'Kullanıcı'} | Rol: {self.kullanici_rol.replace('_', ' ').title()}", 
-            font=("Arial", 10, "bold"),
-            bootstyle="info"
-        )
-        kullanici_bilgi.pack(anchor=E, padx=10, pady=5)
 
-        # Kurum Müdürü için tam ekran, Eğitim Görevlisi için sadece kendi seansları
-        if self.kullanici_rol in ["kurum_muduru", "admin"]:
-            self.ana_ekran_kurum_muduru(ana_panel)
-        elif self.kullanici_rol == "egitim_gorevlisi":
-            self.ana_ekran_egitim_gorevlisi(ana_panel)
-        else:
-            # Normal kullanıcı için basit görünüm
-            self.ana_ekran_normal(ana_panel)
-    
-    def ana_ekran_kurum_muduru(self, ana_panel):
-        """Kurum Müdürü için tam ekran"""
         # --- ÜST KISIM: VERİ GİRİŞİ ---
         giris_frame = ttk.Labelframe(ana_panel, text="Yeni Seans Kaydı", padding=15, bootstyle="primary")
         giris_frame.pack(fill=X, pady=(0, 10))
@@ -536,53 +408,6 @@ class AnaUygulama(ttk.Toplevel):
 
         # İlk açılışta verileri yükle
         self.listele()
-    
-    def ana_ekran_egitim_gorevlisi(self, ana_panel):
-        """Eğitim Görevlisi için sadece kendi seansları"""
-        # Başlık
-        ttk.Label(ana_panel, text="KENDİ SEANSLARIM", font=("Arial", 14, "bold"), bootstyle="primary").pack(pady=10)
-        
-        # Arama
-        arama_frame = ttk.Frame(ana_panel)
-        arama_frame.pack(fill=X, padx=10, pady=5)
-        ttk.Label(arama_frame, text="Danışan Ara:").pack(side=LEFT)
-        self.ent_ara_egitim = ttk.Entry(arama_frame)
-        self.ent_ara_egitim.pack(side=LEFT, padx=10, fill=X, expand=True)
-        self.ent_ara_egitim.bind("<KeyRelease>", self.kendi_seanslarim)
-        
-        # Tablo
-        tablo_frame = ttk.Frame(ana_panel)
-        tablo_frame.pack(fill=BOTH, expand=True, padx=10, pady=5)
-        
-        cols = ("ID", "Tarih", "Danışan", "Bedel", "Ödenen", "KALAN BORÇ", "Notlar")
-        self.tree_egitim = ttk.Treeview(tablo_frame, columns=cols, show="headings", bootstyle="info")
-        
-        for col in cols:
-            self.tree_egitim.heading(col, text=col)
-            self.tree_egitim.column(col, width=100)
-        
-        self.tree_egitim.column("ID", width=0, stretch=False)
-        self.tree_egitim.column("Tarih", width=100)
-        self.tree_egitim.column("Danışan", width=200)
-        self.tree_egitim.column("Bedel", width=100, anchor=E)
-        self.tree_egitim.column("Ödenen", width=100, anchor=E)
-        self.tree_egitim.column("KALAN BORÇ", width=120, anchor=E)
-        self.tree_egitim.column("Notlar", width=200)
-        
-        scrollbar = ttk.Scrollbar(tablo_frame, orient=VERTICAL, command=self.tree_egitim.yview)
-        self.tree_egitim.configure(yscroll=scrollbar.set)
-        scrollbar.pack(side=RIGHT, fill=Y)
-        self.tree_egitim.pack(side=LEFT, fill=BOTH, expand=True)
-        
-        self.tree_egitim.tag_configure('borclu', background='#f8d7da', foreground='#721c24')
-        self.tree_egitim.tag_configure('tamam', background='#d4edda', foreground='#155724')
-        
-        # İlk yükleme
-        self.kendi_seanslarim()
-    
-    def ana_ekran_normal(self, ana_panel):
-        """Normal kullanıcı için basit görünüm"""
-        ttk.Label(ana_panel, text="Sisteme erişim yetkiniz bulunmamaktadır.", font=("Arial", 12), bootstyle="warning").pack(pady=50)
 
     # --- FONKSİYONLAR ---
     def veritabani_baglan(self):
@@ -600,24 +425,9 @@ class AnaUygulama(ttk.Toplevel):
             
             sql = "SELECT * FROM kayitlar"
             params = []
-            where_conditions = []
-            
-            # Rol bazlı filtreleme
-            if self.kullanici_rol == "egitim_gorevlisi":
-                # Eğitim görevlisi sadece kendi seanslarını görür
-                kullanici_adi = self.kullanici[1] if self.kullanici else ""
-                # Kullanıcı adından terapist adını çıkar (örn: "pervin" -> "Pervin Hoca")
-                terapist_adi = kullanici_adi.capitalize() + " Hoca"
-                where_conditions.append("terapist = ?")
-                params.append(terapist_adi)
-            
-            # Arama filtresi
             if kelime:
-                where_conditions.append("danisan_adi LIKE ?")
+                sql += " WHERE danisan_adi LIKE ?"
                 params.append(f"%{kelime}%")
-            
-            if where_conditions:
-                sql += " WHERE " + " AND ".join(where_conditions)
             
             sql += " ORDER BY id DESC" # En yeni en üstte
             
@@ -929,8 +739,8 @@ class AnaUygulama(ttk.Toplevel):
             kullanici_adi = item['values'][1]
             rol = item['values'][3]
             
-            # Admin ve Kurum Müdürü silinemez
-            if rol in ["Yönetici", "Kurum Müdürü"]:
+            # Admin ve Pervin Hanım silinemez
+            if rol in ["Yönetici", "Pervin Hanım"]:
                 messagebox.showerror("Hata", "Bu kullanıcı silinemez!")
                 return
             
@@ -953,121 +763,11 @@ class AnaUygulama(ttk.Toplevel):
         ttk.Button(btn_frame, text="SİL", bootstyle="danger", command=sil).pack(side=LEFT, padx=5)
         ttk.Button(btn_frame, text="İptal", bootstyle="secondary", command=pencere.destroy).pack(side=LEFT, padx=5)
 
-    # --- YENİ MODÜL FONKSİYONLARI ---
-    def kendi_seanslarim(self, event=None):
-        """Eğitim görevlisi için kendi seanslarını listele"""
-        try:
-            if not hasattr(self, 'tree_egitim'):
-                return
-                
-            for i in self.tree_egitim.get_children():
-                self.tree_egitim.delete(i)
-            
-            kelime = self.ent_ara_egitim.get() if hasattr(self, 'ent_ara_egitim') else ""
-            kullanici_adi = self.kullanici[1] if self.kullanici else ""
-            terapist_adi = kullanici_adi.capitalize() + " Hoca"
-            
-            conn = self.veritabani_baglan()
-            cursor = conn.cursor()
-            
-            sql = "SELECT * FROM kayitlar WHERE terapist = ?"
-            params = [terapist_adi]
-            
-            if kelime:
-                sql += " AND danisan_adi LIKE ?"
-                params.append(f"%{kelime}%")
-            
-            sql += " ORDER BY id DESC"
-            
-            cursor.execute(sql, params)
-            rows = cursor.fetchall()
-            conn.close()
-            
-            for row in rows:
-                borc = row[6]
-                tag = 'borclu' if borc > 0 else 'tamam'
-                
-                row_list = list(row)
-                row_list[4] = f"{row[4]:.2f} ₺"
-                row_list[5] = f"{row[5]:.2f} ₺"
-                row_list[6] = f"{row[6]:.2f} ₺"
-                
-                self.tree_egitim.insert("", END, values=(row_list[0], row_list[1], row_list[2], row_list[4], row_list[5], row_list[6], row_list[7]), tags=(tag,))
-        except Exception as e:
-            if hasattr(self, 'tree_egitim'):
-                messagebox.showerror("Hata", f"Listeleme hatası: {e}")
-    
-    def kendi_ucretlerim(self):
-        """Eğitim görevlisi için kendi ücretlerini göster"""
-        self.kendi_seanslarim()
-        messagebox.showinfo("Bilgi", "Kendi ücretleriniz yukarıda listelenmiştir.")
-    
-    def seans_takvimi_goster(self):
-        """Günlük seans takvimi"""
-        messagebox.showinfo("Bilgi", "Seans Takvimi modülü yakında eklenecek.")
-    
-    def haftalik_takvim_goster(self):
-        """Haftalık seans takvimi"""
-        messagebox.showinfo("Bilgi", "Haftalık Takvim modülü yakında eklenecek.")
-    
-    def yeni_seans_ekle(self):
-        """Yeni seans ekleme penceresi"""
-        messagebox.showinfo("Bilgi", "Yeni Seans Ekleme modülü yakında eklenecek.")
-    
-    def danisan_yonetimi(self):
-        """Danışan yönetimi penceresi"""
-        messagebox.showinfo("Bilgi", "Danışan Yönetimi modülü yakında eklenecek.")
-    
-    def randevu_yonetimi(self):
-        """Randevu yönetimi penceresi"""
-        messagebox.showinfo("Bilgi", "Randevu Yönetimi modülü yakında eklenecek.")
-    
-    def gorev_takibi(self):
-        """Görev takibi penceresi"""
-        messagebox.showinfo("Bilgi", "Görev Takibi modülü yakında eklenecek.")
-    
-    def ucret_takibi_goster(self):
-        """Ücret takibi - mevcut ekranı göster"""
-        messagebox.showinfo("Bilgi", "Ücret takibi ana ekranda görüntülenmektedir.")
-    
-    def gelir_gider_raporu(self):
-        """Gelir-Gider raporu"""
-        messagebox.showinfo("Bilgi", "Gelir-Gider Raporu modülü yakında eklenecek.")
-    
-    def odeme_islemleri(self):
-        """Ödeme işlemleri"""
-        messagebox.showinfo("Bilgi", "Ödeme İşlemleri modülü yakında eklenecek.")
-
     def cikis_yap(self):
         self.quit()
 
 if __name__ == "__main__":
     sistem_kontrol()
-    
-    # Veri entegrasyonunu kontrol et ve çalıştır
-    try:
-        conn = sqlite3.connect(DB_NAME)
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM danisanlar")
-        danisan_sayisi = cursor.fetchone()[0]
-        conn.close()
-        
-        # Eğer danışan yoksa ve Excel/DOCX dosyaları varsa entegre et
-        if danisan_sayisi == 0:
-            excel_files = ["SEANS ÜCRET TAKİP.xlsx", "ÖĞRENCİ LİSTESİ.docx", "ÖĞRENCİ AİLE NUMARALARI.docx"]
-            if all(os.path.exists(f) for f in excel_files):
-                try:
-                    # Veri entegrasyon scriptini çalıştır
-                    import subprocess
-                    result = subprocess.run([sys.executable, "veri_entegrasyon.py"], 
-                                          capture_output=True, text=True, timeout=30)
-                    if result.returncode == 0:
-                        print("Veriler başarıyla entegre edildi.")
-                except Exception as e:
-                    print(f"Veri entegrasyonu hatası: {e}")
-    except Exception as e:
-        print(f"Veri kontrolü hatası: {e}")
-    
     try:
         app = LoginPenceresi()
         app.mainloop()
