@@ -1,28 +1,77 @@
-# Leta Yönetim Sistemi - Kurulum Kılavuzu
+# Leta Yönetim Paneli (v1.0) - Kurulum Kılavuzu
 
 ## Sistem Gereksinimleri
-- Windows 7 veya üzeri
+- Windows 10/11 (Setup/EXE ile)
+- macOS (Apple Silicon / Intel) veya Linux (Python ile ya da ilgili build ile)
 - 64-bit işletim sistemi (önerilir)
 
 ## Kurulum Yöntemleri
 
 ### Yöntem 1: Setup Dosyası ile Kurulum (Önerilen)
 
-1. `installer` klasöründeki `Leta_Yonetim_Setup_v4.0.exe` dosyasını çalıştırın
+1. `installer` klasöründeki `Leta_Yonetim_Setup_v1_0.exe` dosyasını çalıştırın
 2. Kurulum sihirbazını takip edin
 3. Program otomatik olarak masaüstüne kısayol oluşturacaktır
 
 ### Yöntem 2: Manuel Kurulum
 
-1. `dist` klasöründeki tüm dosyaları bir klasöre kopyalayın (örn: `C:\Leta Yönetim`)
-2. `Leta_Yonetim_Final.exe` dosyasını çalıştırın
-3. İlk açılışta veritabanı otomatik oluşturulacaktır
+1. `dist` klasöründeki `Leta_Yonetim_Paneli_v1_0.exe` dosyasını bir klasöre kopyalayın
+2. EXE’yi çalıştırın
 
-## Setup Dosyası Oluşturma
+### macOS / Linux (Kaynak kod ile çalıştırma)
 
-### Otomatik (Batch Script ile)
+1. Python 3.10+ kurun
+2. Bu klasörde terminal açın
+3. Kurulum:
+   - `python -m pip install -r requirements.txt`
+4. Çalıştırma:
+   - `python leta_app.py`
 
-1. `build_setup.bat` dosyasını çalıştırın
+### macOS / Linux (Build alma)
+
+- macOS:
+  - `bash scripts/build_macos.sh 1.0`
+  - çıktı: `dist/Leta_Yonetim_Paneli_v1_0.app`
+- macOS (DMG):
+  - `bash scripts/build_macos_dmg.sh 1.0`
+  - çıktı: `dist/Leta_Yonetim_Paneli_v1_0_1.0.dmg`
+- Linux:
+  - `bash scripts/build_linux.sh 1.0`
+  - çıktı: `dist/Leta_Yonetim_Paneli_v1_0`
+- Linux (AppImage):
+  - `bash scripts/build_linux_appimage.sh 1.0`
+  - çıktı: `dist/Leta_Yonetim_Paneli_v1_0_1.0_x86_64.AppImage`
+
+### macOS / Linux (Setup/Installer)
+
+- macOS (PKG):
+  - `bash scripts/build_macos_pkg.sh 1.0`
+  - çıktı: `dist/Leta_Yonetim_Paneli_v1_0_1.0.pkg`
+- Linux (.deb + .rpm):
+  - `bash scripts/build_linux_packages.sh 1.0`
+  - çıktı: `dist/` altında `.deb` ve `.rpm`
+
+## Yeni PC’de ilk açılışta ne olur? (Önemli)
+- Uygulama veriyi Program Files içine yazmaz.
+- Veriler otomatik olarak şuraya gider:
+  - Windows: `%LOCALAPPDATA%\LetaYonetim\`
+  - macOS: `~/Library/Application Support/LetaYonetim/`
+  - Linux: `~/.local/share/LetaYonetim/` (veya `$XDG_DATA_HOME/LetaYonetim/`)
+  - `leta_data.db` (veritabanı)
+  - `Yedekler\` (yedekler)
+  - `leta_error.log` (hata günlüğü)
+
+### İlk kurulum akışı (DB temizken)
+1. Program açılır
+2. Giriş ekranında **GİRİŞ** kapalı olur
+3. **“İLK KURULUM (Kurum Müdürü Oluştur)”** ile ilk kullanıcı oluşturulur
+4. Sonrasında çalışanlar **KAYIT OL** ile kendi hesabını açar (varsayılan: Eğitim Görevlisi)
+
+## Setup Dosyası Oluşturma (Geliştirici)
+
+### Otomatik (Windows - PowerShell Script ile)
+
+1. `scripts/build_setup.ps1` dosyasını çalıştırın
 2. Script otomatik olarak:
    - EXE dosyasını oluşturacak
    - Setup dosyasını oluşturacak (Inno Setup yüklüyse)
@@ -36,15 +85,14 @@
 
 2. **Setup Oluşturma:**
    - Inno Setup Compiler'ı indirin: https://jrsoftware.org/isdl.php
-   - `setup.iss` dosyasını Inno Setup ile açın
+   - `installer\Leta_Setup_v1_0.iss` dosyasını Inno Setup ile açın
    - "Build > Compile" menüsünden derleyin
-   - Setup dosyası `installer` klasöründe oluşacaktır
+   - Setup dosyası `installer` klasöründe `Leta_Yonetim_Setup_v1_0.exe` olarak oluşacaktır
 
 ## Kullanım
 
 ### İlk Giriş
-- Kullanıcı adı: `admin`
-- Şifre: `1234`
+- İlk açılışta **Kurum Müdürü** hesabını siz oluşturursunuz (İlk Kurulum).
 
 ### Özellikler
 - ✅ Yeni seans kaydı ekleme
@@ -53,6 +101,8 @@
 - ✅ Kayıt silme
 - ✅ Excel'e aktarma
 - ✅ Otomatik yedekleme
+- ✅ Haftalık ders/ücret takip
+- ✅ Kasa defteri (günlük giren/çıkan)
 
 ### Ödeme Ekleme
 1. Tabloda bir kayda sağ tıklayın
@@ -63,11 +113,15 @@
 ## Sorun Giderme
 
 ### Program açılmıyor
-- Windows Defender veya antivirüs programını kontrol edin
-- Programı yönetici olarak çalıştırmayı deneyin
+- Windows Defender veya antivirüs programını kontrol edin (Windows)
+- macOS’ta: “Güvenlik” uyarısı çıkarsa uygulamaya izin verin
+- Linux’ta: dosyaya çalıştırma izni verin (`chmod +x dist/Leta_Yonetim_Paneli_v1_0`)
 
 ### Veritabanı hatası
-- Program klasöründe yazma izni olduğundan emin olun
+- Veri klasörünü kontrol edin:
+  - Windows: `%LOCALAPPDATA%\LetaYonetim\`
+  - macOS: `~/Library/Application Support/LetaYonetim/`
+  - Linux: `~/.local/share/LetaYonetim/` (veya `$XDG_DATA_HOME/LetaYonetim/`)
 - `Yedekler` klasöründen son yedeği geri yükleyin
 
 ### Excel aktarma hatası
@@ -76,10 +130,14 @@
 
 ## Yedekleme
 
-Program her açılışta otomatik yedek alır. Yedekler `Yedekler` klasöründe saklanır.
+Program her açılışta otomatik yedek alır. Yedekler veri klasörü içindeki `Yedekler/` klasöründe saklanır.
 Son 10 yedek tutulur, eski yedekler otomatik silinir.
 
 ## Destek
 
 Sorunlar için lütfen geliştirici ile iletişime geçin.
+
+## Dağıtım (Windows/macOS/Linux)
+
+- Detaylı dağıtım notları: `BeniOku dosyaları/README_DAGITIM.md`
 
