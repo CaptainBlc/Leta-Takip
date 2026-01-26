@@ -1,0 +1,126 @@
+LETA Aile ve Çocuk - Seans & Ücret Takip (v1.0)
+KULLANIM KILAVUZU (Basit Anlatım)
+
+## Başlamadan (En önemli bilgi)
+- Program verileri bilgisayarda şu klasöre kaydeder:
+  - Windows: %LOCALAPPDATA%\LetaYonetim\
+  - macOS: ~/Library/Application Support/LetaYonetim/
+  - Linux: ~/.local/share/LetaYonetim/  (veya $XDG_DATA_HOME/LetaYonetim/)
+
+## Logo (Kurumsal görünüm için)
+- Kurum logonuz varsa **logo.png** adıyla şu iki yerden birine koyabilirsiniz:
+  1) Programın yanında (EXE ile aynı klasör)
+  2) Veri klasörü içine: (yukarıdaki klasör) /logo.png
+- Program açılınca logo otomatik görünür.
+
+## 1) İlk gün kurulum (sadece 1 kere)
+1. Programı aç.
+2. Ekranda “İLK KURULUM (Kurum Müdürü Oluştur)” butonu varsa ona bas.
+3. Kurum Müdürü hesabını oluştur.
+
+## 2) Çalışan (Kurum Görevlisi) giriş/kayıt
+1. Programı aç.
+2. “KAYIT OL” ile kendi kullanıcı adını ve şifreni oluştur.
+3. “GİRİŞ YAP” ile giriş yap.
+
+## 3) Günlük işlem (en çok kullanılan)
+- Seans kaydı ekle:
+  - SEANS TAKİP ekranında: Tarih + Danışan + Terapist + Bedel + Alınan yaz
+  - “KAYDET” de
+
+- Ödeme alındıysa:
+  - Listeden kaydı seç
+  - Sağ tık → “Ödeme Ekle”
+  - (Bu işlem otomatik olarak Kasa Defteri’ne “Giren” olarak eklenir)
+
+## 4) Haftalık alındı/alınmadı (defter mantığı)
+1. Menüden: Muhasebe → “Haftalık Ders/Ücret Takip”
+2. Hafta başlangıcını seç → “Göster”
+3. Seçili seans için:
+   - “Seans Alındı/Alınmadı”
+   - “Ücret Alındı/Alınmadı”
+   - “Ücret/Not Düzenle” ile tutar/ödeme şeklini gir
+4. İstersen “Excel’e Aktar”
+
+## 5) Günlük kasa (giren/çıkan)
+1. Menüden: Muhasebe → “Kasa Defteri (Günlük)”
+2. Tarihi seç → “Yenile”
+3. Kurum Müdürü:
+   - “Gelir Ekle” / “Gider Ekle” ile manuel kayıt girebilir
+
+## 6) Acil durum: Sistemi sıfırlama (DB silme)
+- Sadece **Kurum Müdürü** yapabilir.
+- Menü: Dosya İşlemleri → **“Sistemi Sıfırla (DB Sil)”**
+- Program önce otomatik yedek alır, sonra veritabanını siler.
+- Sonra uygulama yeniden açılır ve tekrar **İLK KURULUM** ekranı gelir.
+
+## Sorun olursa
+- Hata günlüğü: veri klasörü içindeki `leta_error.log`
+- Bu dosyayı bana atarsan hızlıca bakarız.
+
+LETA Aile ve Çocuk - Seans & Borç Takip Sistemi (v1.0)
+KULLANIM KILAVUZU (Kısa)
+
+1) Kurulum / İlk Açılış
+- Programı açın.
+- Eğer sistem ilk kez kuruluyorsa, giriş ekranında:
+  "İLK KURULUM (Kurum Müdürü Oluştur)" butonuna basın.
+- Açılan ekranda kurum müdürü hesabını oluşturun.
+  Bu hesap kullanıcı yönetimi dahil tüm yetkilere sahiptir.
+
+2) Kullanıcı Kayıt / Giriş
+- Çalışanlar giriş ekranında "KAYIT OL" ile hesap açabilir (varsayılan rol: egitim_gorevlisi).
+- Kurum müdürü, rol gerektiren işlemleri (Ayarlar, kullanıcı yönetimi vb.) yönetir.
+
+3) Seans Kaydı (SEANS TAKİP)
+- Tarih, Danışan, Terapist, Hizmet Bedeli, Alınan, Not alanlarını doldurun.
+- "KAYDET" ile kayıt eklenir.
+
+4) Ödeme Ekle / Borç Güncelle
+- Listede bir kaydı seçin.
+- Sağ tık → "Ödeme Ekle"
+- Eklenen tutar, ödenen miktara eklenir ve kalan borç otomatik güncellenir.
+- Ayrıca bu tahsilat otomatik olarak **Kasa Defteri**ne (Giren) işlenir.
+
+5) Haftalık Ders / Ücret Takip (Defter Mantığı)
+- Menü: Muhasebe → "Haftalık Ders/Ücret Takip"
+- İlgili haftayı seçip listeyi görüntüleyin.
+- Seanslar için:
+  - "Seans Alındı/Alınmadı" ile ders yapıldı mı işaretleyin
+  - "Ücret Alındı/Alınmadı" + "Ücret/Not Düzenle" ile tutar ve ödeme şeklini girin
+- İsterseniz "Excel'e Aktar" ile haftalık raporu dışarı alabilirsiniz.
+
+6) Kasa Defteri (Günlük Gelir-Gider)
+- Menü: Muhasebe → "Kasa Defteri (Günlük)"
+- Seçtiğiniz tarihteki Giren/Çıkan kayıtlarını listeler ve:
+  - Devreden kasa
+  - Günlük giren/çıkan
+  - Bugünkü kasa mevcudu
+  bilgisini otomatik hesaplar.
+- Kurum müdürü:
+  - "Gelir Ekle" / "Gider Ekle" ile manuel kasa kaydı girebilir
+  - "Sil" ile kasa kaydı silebilir
+
+7) Kayıt Sil
+- Listede bir kaydı seçin.
+- Sağ tık → "Kaydı Sil"
+
+8) Ayarlar (Terapistler)
+- Kurum müdürü hesabıyla giriş yapınca "AYARLAR" sekmesi görünür.
+- Buradan terapist ekleyebilir/silebilir ve rol bilgisini güncelleyebilirsiniz.
+
+9) Veriler Nerede Tutuluyor?
+- Kurulumlu kullanımda veri dosyaları kullanıcı profilinde tutulur:
+  - Windows: %LOCALAPPDATA%\\LetaYonetim\\
+  - macOS: ~/Library/Application Support/LetaYonetim/
+  - Linux: ~/.local/share/LetaYonetim/  (veya $XDG_DATA_HOME/LetaYonetim/)
+  - leta_data.db (veritabanı)
+  - Yedekler\\ (otomatik yedekler)
+  - leta_error.log (hata günlüğü)
+
+10) Sorun Giderme
+- Program açılmıyor / ekran gelmiyor ise:
+  veri klasöründeki `leta_error.log` dosyasını kontrol edin.
+  Bu dosyayı bana gönderirsen hatayı hızlıca buluruz.
+
+
