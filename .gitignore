@@ -29,7 +29,7 @@ build/
 build_build/
 dist_build/
 dist/
-*.spec
+# *.spec  # Spec dosyası gerekli, commit edilmeli
 *.exe
 *.app
 *.dmg
