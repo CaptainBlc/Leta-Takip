@@ -29,7 +29,7 @@ build/
 build_build/
 dist_build/
 dist/
-*.spec
+# *.spec  # Spec dosyası gerekli, commit edilmeli
 *.exe
 *.app
 *.dmg
@@ -42,4 +42,5 @@ AppDir/
 # Archive folder (lokalde dursun, repoya gerek yok)
 ARCHIVE/
 
-
+# Legacy modules (artık kullanılmıyor - kod leta_app.py içinde)
+leta_modules/

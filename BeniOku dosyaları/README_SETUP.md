@@ -141,3 +141,39 @@ Sorunlar için lütfen geliştirici ile iletişime geçin.
 
 - Detaylı dağıtım notları: `BeniOku dosyaları/README_DAGITIM.md`
 
+<<<<<<< HEAD
+## 📚 Dokümantasyon
+
+### Kullanıcı İçin
+- **KULLANIM_KILAVUZU.txt** - Temel kullanım rehberi
+- **PIPELINE_KULLANICI_KILAVUZU.md** - Yeni pipeline sistemi hakkında
+
+### Geliştirici İçin
+- **PIPELINE_SISTEMI.md** - Pipeline mimarisi ve API dokümantasyonu
+- **SORUNLAR_VE_COZUMLER.md** - Tespit edilen sorunlar ve çözümler
+- **README_DAGITIM.md** - Dağıtım süreci
+
+## 🆕 Yeni Özellik: Data Pipeline Sistemi (v1.1)
+
+Leta Takip artık **Event-Driven Architecture** ile çalışıyor!
+
+### Ne Değişti?
+- ✅ **Seans kaydı** eklendiğinde tüm ilgili tablolar otomatik güncellenir
+- ✅ **Ödeme** eklendiğinde kasa defteri otomatik senkronize olur
+- ✅ **Kayıt silindiğinde** cascade silme ile tüm bağlı veriler temizlenir
+
+### Pipeline Akışları
+1. **SEANS_KAYIT:** records → seans_takvimi → kasa_hareketleri → oda_doluluk
+2. **ODEME:** odeme_hareketleri → records → kasa_hareketleri → seans_takvimi
+3. **SILME:** Cascade silme (tüm bağlı tablolar)
+
+**Detaylı bilgi:** `BeniOku dosyaları/PIPELINE_SISTEMI.md`
+
+---
+
+## Dağıtım (Windows/macOS/Linux)
+
+- Detaylı dağıtım notları: `BeniOku dosyaları/README_DAGITIM.md`
+
+=======
+>>>>>>> a6275d87ff3a4928c373c5f56a16a4ac161c8f6c
