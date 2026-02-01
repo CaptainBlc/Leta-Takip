@@ -1,93 +1,82 @@
-name: Build Release (Windows/macOS/Linux)
+name: Build Leta Takip v1.3 (Win & Mac)
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Version (e.g. 1.0)"
-        required: true
-        default: "1.0"
+  push:
+    branches: [ "develop" ]  # Sen 'develop' dalındasın, burayı dinliyoruz
+  workflow_dispatch:          # İstersen manuel de tetikleyebilirsin
 
 jobs:
-  windows:
+  # --- WINDOWS BUILD ---
+  build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+
+      - name: Python Kurulumu
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install deps
+
+      - name: Kütüphaneleri Yükle
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt -r requirements-dev.txt
-      - name: Install Inno Setup (for installer)
-        run: choco install innosetup --no-progress -y
-      - name: Build EXE + Setup
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_setup.ps1 -Version ${{ inputs.version }}
-      - name: Upload artifacts
+          pip install pyinstaller ttkbootstrap pandas reportlab openpyxl Pillow
+
+      - name: EXE Oluştur (PyInstaller)
+        run: |
+          # Tek satırda build komutu (Script dosyasına gerek yok)
+          pyinstaller --noconfirm --onefile --windowed --name "Leta_Takip_v1.3" --hidden-import=ttkbootstrap --hidden-import=reportlab leta_app.py
+
+      - name: Dosyayı Yükle (Artifact)
         uses: actions/upload-artifact@v4
         with:
-          name: windows-installers
-          path: |
-            dist/Leta_Yonetim_Paneli_v1_0.exe
-            installer/Leta_Yonetim_Setup_v1_0.exe
+          name: Leta_Takip_Windows_v1.3
+          path: dist/Leta_Takip_v1.3.exe
 
-  macos:
+  # --- MACOS BUILD ---
+  build-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+
+      - name: Python Kurulumu
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install deps
+
+      - name: Kütüphaneleri Yükle
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install -r requirements.txt -r requirements-dev.txt
-      - name: Make scripts executable
-        run: chmod +x scripts/*.sh
-      - name: Build DMG
-        run: bash scripts/build_macos_dmg.sh ${{ inputs.version }}
-      - name: Build PKG
-        run: bash scripts/build_macos_pkg.sh ${{ inputs.version }}
-      - name: Upload artifacts
+          pip install pyinstaller ttkbootstrap pandas reportlab openpyxl Pillow
+
+      - name: İkon Oluştur (Varsa)
+        run: |
+          if [ -f logo.png ]; then
+            mkdir Leta.iconset
+            sips -z 64 64   logo.png --out Leta.iconset/icon_32x32@2x.png
+            iconutil -c icns Leta.iconset -o logo.icns
+          fi
+
+      - name: APP Build (PyInstaller)
+        run: |
+          # İkon varsa ikonlu, yoksa ikonsuz build al
+          if [ -f logo.icns ]; then
+            pyinstaller --noconfirm --onefile --windowed --name "Leta_Takip_v1.3" --hidden-import=ttkbootstrap --hidden-import=reportlab --icon=logo.icns leta_app.py
+          else
+            pyinstaller --noconfirm --onefile --windowed --name "Leta_Takip_v1.3" --hidden-import=ttkbootstrap --hidden-import=reportlab leta_app.py
+          fi
+
+      - name: DMG Paketleme
+        run: |
+          # Manuel script yerine direkt buraya gömdük
+          mkdir -p dist_dmg
+          cp -r "dist/Leta_Takip_v1.3.app" dist_dmg/
+          
+          # DMG oluştur
+          hdiutil create -volname "Leta Takip v1.3" -srcfolder dist_dmg -ov -format UDZO "dist/Leta_Takip_v1.3.dmg"
+
+      - name: Dosyayı Yükle (Artifact)
         uses: actions/upload-artifact@v4
         with:
-          name: macos-installers
-          path: |
-            dist/*.dmg
-            dist/*.pkg
-
-  linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install system deps
-        run: |
-          sudo apt-get update
-          # AppImage tool requires FUSE on some runners
-          sudo apt-get install -y ruby ruby-dev build-essential rpm fuse3 || true
-          sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64 || true
-          sudo gem install --no-document fpm
-      - name: Install python deps
-        run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install -r requirements.txt -r requirements-dev.txt
-      - name: Make scripts executable
-        run: chmod +x scripts/*.sh
-      - name: Build AppImage
-        run: bash scripts/build_linux_appimage.sh ${{ inputs.version }}
-      - name: Build DEB/RPM
-        run: bash scripts/build_linux_packages.sh ${{ inputs.version }}
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: linux-installers
-          path: |
-            dist/*.AppImage
-            dist/*.deb
-            dist/*.rpm
-
-
+          name: Leta_Takip_Mac_DMG_v1.3
+          path: dist/Leta_Takip_v1.3.dmg
