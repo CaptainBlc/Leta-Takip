@@ -1,81 +1,66 @@
-name: Build Leta Takip v1.3 (Win & Mac)
+name: Build Leta Takip v1.3 (Fixed)
 
 on:
   push:
-    branches: [ "develop" ]  # Sen 'develop' dalındasın, burayı dinliyoruz
-  workflow_dispatch:          # İstersen manuel de tetikleyebilirsin
+    branches: [ "develop", "main" ]
+  workflow_dispatch:
 
 jobs:
-  # --- WINDOWS BUILD ---
   build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Python Kurulumu
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Kütüphaneleri Yükle
         run: |
           python -m pip install --upgrade pip
-          pip install pyinstaller ttkbootstrap pandas reportlab openpyxl Pillow
-
-      - name: EXE Oluştur (PyInstaller)
+          pip install pyinstaller ttkbootstrap pandas reportlab openpyxl Pillow tkcalendar
+      - name: EXE Oluştur
         run: |
-          # Tek satırda build komutu (Script dosyasına gerek yok)
-          pyinstaller --noconfirm --onefile --windowed --name "Leta_Takip_v1.3" --hidden-import=ttkbootstrap --hidden-import=reportlab leta_app.py
-
-      - name: Dosyayı Yükle (Artifact)
+          # --collect-all ve --hidden-import komutları eklendi
+          pyinstaller --noconfirm --onefile --windowed --name "Leta_Takip_v1.3" --collect-all ttkbootstrap --hidden-import=pandas --hidden-import=openpyxl --hidden-import=reportlab leta_app.py
+      - name: Dosyayı Yükle
         uses: actions/upload-artifact@v4
         with:
           name: Leta_Takip_Windows_v1.3
           path: dist/Leta_Takip_v1.3.exe
 
-  # --- MACOS BUILD ---
   build-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Python Kurulumu
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
       - name: Kütüphaneleri Yükle
         run: |
           python3 -m pip install --upgrade pip
-          pip install pyinstaller ttkbootstrap pandas reportlab openpyxl Pillow
-
-      - name: İkon Oluştur (Varsa)
+          pip install pyinstaller ttkbootstrap pandas reportlab openpyxl Pillow tkcalendar
+      - name: İkon Oluştur
         run: |
           if [ -f logo.png ]; then
             mkdir Leta.iconset
-            sips -z 64 64   logo.png --out Leta.iconset/icon_32x32@2x.png
+            sips -z 64 64 logo.png --out Leta.iconset/icon_32x32@2x.png
             iconutil -c icns Leta.iconset -o logo.icns
           fi
-
-      - name: APP Build (PyInstaller)
+      - name: APP Build
         run: |
-          # İkon varsa ikonlu, yoksa ikonsuz build al
+          # Mac için kritik: hidden-import ve collect-all
           if [ -f logo.icns ]; then
-            pyinstaller --noconfirm --onefile --windowed --name "Leta_Takip_v1.3" --hidden-import=ttkbootstrap --hidden-import=reportlab --icon=logo.icns leta_app.py
+             pyinstaller --noconfirm --onefile --windowed --name "Leta_Takip_v1.3" --collect-all ttkbootstrap --hidden-import=pandas --hidden-import=openpyxl --hidden-import=reportlab --icon=logo.icns leta_app.py
           else
-            pyinstaller --noconfirm --onefile --windowed --name "Leta_Takip_v1.3" --hidden-import=ttkbootstrap --hidden-import=reportlab leta_app.py
+             pyinstaller --noconfirm --onefile --windowed --name "Leta_Takip_v1.3" --collect-all ttkbootstrap --hidden-import=pandas --hidden-import=openpyxl --hidden-import=reportlab leta_app.py
           fi
-
       - name: DMG Paketleme
         run: |
-          # Manuel script yerine direkt buraya gömdük
           mkdir -p dist_dmg
           cp -r "dist/Leta_Takip_v1.3.app" dist_dmg/
-          
-          # DMG oluştur
           hdiutil create -volname "Leta Takip v1.3" -srcfolder dist_dmg -ov -format UDZO "dist/Leta_Takip_v1.3.dmg"
-
-      - name: Dosyayı Yükle (Artifact)
+      - name: Dosyayı Yükle
         uses: actions/upload-artifact@v4
         with:
           name: Leta_Takip_Mac_DMG_v1.3
