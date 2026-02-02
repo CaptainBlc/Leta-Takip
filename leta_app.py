@@ -423,23 +423,23 @@ def silent_backup() -> None:
 
 def connect_db() -> sqlite3.Connection:
     """Veritabanı bağlantısı oluştur"""
-    conn = sqlite3.connect(db_path())
+    conn = sqlite3.connect(db_path())  # macOS'ta da aynı
     cur = conn.cursor()
-    cur.execute("PRAGMA foreign_keys = ON;")
-    cur.execute("PRAGMA journal_mode = WAL;")
+    cur.execute("PRAGMA foreign_keys = ON;")  # Tüm platformlarda aynı
+    cur.execute("PRAGMA journal_mode = WAL;")  # Tüm platformlarda aynı
     # Eski veritabanlarında eksik kolonları garanti altına al (özellikle pricing_policy.teacher_name)
     try:
         _ensure_min_schema(conn)
     except Exception:
         pass
-    return conn
+    return conn  # macOS'ta da aynı dönüş
 
 
 def _ensure_min_schema(conn: sqlite3.Connection) -> None:
     """Her bağlantıda minimum şemayı garanti altına al (idempotent)."""
     cur = conn.cursor()
     # pricing_policy tablosu var mı kontrol et
-    cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pricing_policy' LIMIT 1;")
+    cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pricing_policy' LIMIT 1;")  # Tüm platformlarda aynı
     if cur.fetchone():
         cur.execute("PRAGMA table_info(pricing_policy)")
         cols = [r[1] for r in cur.fetchall()]
@@ -490,7 +490,7 @@ def init_db() -> None:
     cur = conn.cursor()
 
     def table_exists(name: str) -> bool:
-        cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,))
+        cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,))  # Tüm platformlarda aynı
         return cur.fetchone() is not None
 
     # Settings tablosu
