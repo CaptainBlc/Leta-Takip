@@ -3203,49 +3203,94 @@ class DataPipeline:
     def get_price_for_danisan_terapist(self, danisan_adi: str, terapist: str) -> float:
         """
         Danışan + Terapist kombinasyonu için otomatik fiyat getir.
-        Öncelik sırası:
-        1. pricing_policy tablosu (en güncel)
-        2. ogrenci_personel_fiyatlandirma tablosu
-        
-        Returns:
-            float: Fiyat (bulunamazsa 0.0)
+        V3: GÖRÜNMEZ KARAKTER TEMİZLEYİCİ (Mac/Excel uyumlu)
         """
         try:
-            danisan_adi = (danisan_adi or "").strip().upper()
-            terapist = (terapist or "").strip()
-            
             if not danisan_adi or not terapist:
                 return 0.0
+
+            # --- 1. TEMİZLİK FONKSİYONU ---
+            def temizle(text):
+                if not text: return ""
+                # Tüm görünmez boşlukları, normal boşluğa çevir ve kırp
+                txt = str(text).replace('\xa0', ' ').strip()
+                # Türkçe karakterleri kabaca ASCII'ye benzet (En garanti yöntem)
+                # İ -> I, ı -> I, ş -> s gibi... SQL araması yerine Python'da eşleştireceğiz.
+                tr_map = {
+                    ord('İ'): 'I', ord('ı'): 'I', ord('I'): 'I', ord('i'): 'I',
+                    ord('Ş'): 'S', ord('ş'): 'S', 
+                    ord('Ğ'): 'G', ord('ğ'): 'G',
+                    ord('Ü'): 'U', ord('ü'): 'U',
+                    ord('Ö'): 'O', ord('ö'): 'O',
+                    ord('Ç'): 'C', ord('ç'): 'C'
+                }
+                return txt.translate(tr_map).upper().replace(" ", "") # Boşlukları da silip yapıştır: "ALİVELİ" == "ALİ VELİ"
+
+            # Aranan Kişiler (Temizlenmiş)
+            hedef_danisan = temizle(danisan_adi)
+            hedef_terapist = temizle(terapist)
             
-            # Öncelik 1: pricing_policy tablosundan fiyat al (TRIM ile boşluk farkını tolere et)
-            self.cur.execute(
-                """
-                SELECT price FROM pricing_policy 
-                WHERE student_id = (SELECT id FROM danisanlar WHERE UPPER(TRIM(COALESCE(ad_soyad,''))) = UPPER(?) LIMIT 1) 
-                AND TRIM(COALESCE(teacher_name,'')) = ? 
-                ORDER BY created_at DESC
-                LIMIT 1
-                """,
-                (danisan_adi, terapist)
-            )
-            row = self.cur.fetchone()
-            if row and row[0]:
-                fiyat = float(row[0])
-                if fiyat > 0:
-                    self._log("SMART_DEFAULT_PRICE", f"{danisan_adi} - {terapist}: {fiyat} TL (pricing_policy)")
-                    return fiyat
+            print(f"DEBUG: Aranıyor -> Danışan: {hedef_danisan} | Terapist: {hedef_terapist}")
+
+            cur = self.cur 
+
+            # --- 2. TÜM LİSTEYİ ÇEK VE PYTHON'DA EŞLEŞTİR (En Garanti Yol) ---
+            # Veritabanındaki "Aktif" olan tüm fiyat listesini çekiyoruz.
+            # Böylece SQL'in 'İ' harfiyle başı derde girmez.
             
-            # Öncelik 2: ogrenci_personel_fiyatlandirma tablosundan fiyat al
-            cocuk_id = self._get_cocuk_id(danisan_adi)
-            if cocuk_id:
-                fiyat = get_ogrenci_personel_ucreti(cocuk_id, terapist, self.conn)
-                if fiyat > 0:
-                    self._log("SMART_DEFAULT_PRICE", f"{danisan_adi} - {terapist}: {fiyat} TL (ogrenci_personel_fiyatlandirma)")
-                    return fiyat
+            sql = """
+                SELECT d.ad_soyad, opf.personel_adi, opf.seans_ucreti
+                FROM ogrenci_personel_fiyatlandirma opf
+                LEFT JOIN danisanlar d ON opf.ogrenci_id = d.id
+                WHERE opf.aktif = 1
+            """
+            cur.execute(sql)
+            tum_fiyatlar = cur.fetchall()
+
+            # Döngüyle tek tek kontrol et
+            for db_danisan, db_personel, ucret in tum_fiyatlar:
+                # Veritabanından geleni de temizle
+                db_d_clean = temizle(db_danisan)
+                db_p_clean = temizle(db_personel)
+
+                # DEBUG LOG (Sadece gerekirse aç)
+                # print(f"DB: {db_d_clean} - {db_p_clean} | HEDEF: {hedef_danisan} - {hedef_terapist}")
+
+                # Terapist eşleşiyor mu? (İçinde geçmesi yeterli, örn: "Pervin" -> "Pervin Hoca")
+                terapist_ok = (hedef_terapist in db_p_clean) or (db_p_clean in hedef_terapist)
+                
+                if db_d_clean == hedef_danisan and terapist_ok:
+                    fiyat = float(ucret)
+                    if fiyat > 0:
+                        print(f"BULUNDU (Tablo 1): {db_danisan} - {db_personel} : {fiyat}")
+                        return fiyat
+
+            # --- 3. EĞER BULUNAMAZSA ESKİ TABLOYA BAK (Yedek) ---
+            sql2 = """
+                SELECT d.ad_soyad, pp.teacher_name, pp.price
+                FROM pricing_policy pp
+                LEFT JOIN danisanlar d ON pp.student_id = d.id
+            """
+            cur.execute(sql2)
+            tum_fiyatlar_eski = cur.fetchall()
             
+            for db_danisan, db_personel, ucret in tum_fiyatlar_eski:
+                db_d_clean = temizle(db_danisan)
+                db_p_clean = temizle(db_personel)
+                
+                terapist_ok = (hedef_terapist in db_p_clean) or (db_p_clean in hedef_terapist)
+
+                if db_d_clean == hedef_danisan and terapist_ok:
+                    fiyat = float(ucret)
+                    if fiyat > 0:
+                        print(f"BULUNDU (Tablo 2): {fiyat}")
+                        return fiyat
+
+            print("HATA: Hiçbir tabloda eşleşme bulunamadı.")
             return 0.0
+
         except Exception as e:
-            self._log("ERROR", f"get_price_for_danisan_terapist failed: {e}")
+            print(f"HATA (Fiyat Bulma): {e}")
             return 0.0
     
     # ============================================================
