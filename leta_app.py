@@ -24,6 +24,9 @@ import time
 import zipfile
 import ctypes
 
+if sys.platform == "darwin":
+    os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
+
 import pandas as pd
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
@@ -323,6 +326,14 @@ def configure_macos_scaling(win) -> None:
     if not IS_MAC or not win:
         return
     try:
+        try:
+            win.tk.call("tk::mac::useThemedToplevel", 1)
+        except Exception:
+            pass
+        try:
+            win.tk.call("set", "::tk::mac::useCompatibilityMetrics", 0)
+        except Exception:
+            pass
         dpi = float(win.winfo_fpixels("1i") or 0)
         if dpi <= 0:
             return

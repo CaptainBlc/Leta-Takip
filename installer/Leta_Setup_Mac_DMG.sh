@@ -10,7 +10,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
 VERSION="${1:-1.3}"
-APP_NAME="Leta_Pipeline_v1_3"
+APP_NAME="Leta_Pipeline_v${VERSION//./_}"
 DMG_NAME="Leta_Takip_${VERSION}.dmg"
 VOLUME_NAME="Leta Takip ${VERSION}"
 
@@ -110,4 +110,3 @@ echo ""
 echo "💡 Kullanıcılar DMG'i açıp ${APP_NAME}.app'i"
 echo "   Applications klasörüne sürükleyebilir."
 echo ""
-
