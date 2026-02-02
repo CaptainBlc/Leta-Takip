@@ -438,42 +438,52 @@ def connect_db() -> sqlite3.Connection:
 def _ensure_min_schema(conn: sqlite3.Connection) -> None:
     """Her bağlantıda minimum şemayı garanti altına al (idempotent)."""
     cur = conn.cursor()
-    # pricing_policy tablosu yoksa init_db zaten oluşturur; burada sadece mevcutsa kolon kontrolü yapıyoruz.
+    # pricing_policy tablosu var mı kontrol et
     cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='pricing_policy' LIMIT 1;")
     if cur.fetchone():
         cur.execute("PRAGMA table_info(pricing_policy)")
         cols = [r[1] for r in cur.fetchall()]
+        
+        # --- EKSİK SÜTUNLARI KONTROL ET VE EKLE ---
+        
         if "teacher_name" not in cols:
             try:
                 cur.execute("ALTER TABLE pricing_policy ADD COLUMN teacher_name TEXT")
-            except Exception:
-                pass
+            except Exception: pass
+            
         if "student_id" not in cols:
             try:
                 cur.execute("ALTER TABLE pricing_policy ADD COLUMN student_id INTEGER")
-            except Exception:
-                pass
+            except Exception: pass
+            
         if "price" not in cols:
             try:
                 cur.execute("ALTER TABLE pricing_policy ADD COLUMN price REAL")
-            except Exception:
-                pass
+            except Exception: pass
+            
         if "created_at" not in cols:
             try:
                 cur.execute("ALTER TABLE pricing_policy ADD COLUMN created_at TEXT")
-            except Exception:
-                pass
+            except Exception: pass
+
+        # ---> BU KISIM EKLENDİ (Hatayı Çözen Kısım) <---
+        if "updated_at" not in cols:
+            try:
+                cur.execute("ALTER TABLE pricing_policy ADD COLUMN updated_at TEXT")
+            except Exception: pass
+        # ------------------------------------------------
+            
         try:
             cur.execute("CREATE INDEX IF NOT EXISTS idx_pricing_student ON pricing_policy(student_id);")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_pricing_teacher ON pricing_policy(teacher_name);")
             cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_pricing_unique ON pricing_policy(student_id, teacher_name);")
         except Exception:
             pass
+            
     try:
         conn.commit()
     except Exception:
         pass
-
 def init_db() -> None:
     """Veritabanını başlat ve tüm tabloları oluştur"""
     conn = connect_db()
@@ -687,6 +697,7 @@ def init_db() -> None:
             teacher_name TEXT,
             price REAL NOT NULL,
             created_at TEXT,
+            updated_at TEXT,  
             FOREIGN KEY (student_id) REFERENCES danisanlar(id),
             UNIQUE(student_id, teacher_name)
         );
@@ -7852,7 +7863,11 @@ class App(ttk.Window):
         self._personel_ucret_listele(parent)
     
     def _cocuk_ucret_listele(self, parent):
-        """Çocuk ücret takibi listesini yükle - Günlük/haftalık/aylık özet ile"""
+        """
+        SADELEŞTİRİLMİŞ VERSİYON:
+        Bu ekranda SADECE 'Fiyat Listesi' (Excel'den yüklenenler) görünür.
+        Günlük seans kayıtları buraya gelmez (onlar Seans Takip'te kalır).
+        """
         tree = parent._tree_cocuk
         ent_ara = parent._ent_ara_cocuk
         summary_labels = parent._summary_labels_cocuk
@@ -7870,94 +7885,68 @@ class App(ttk.Window):
             conn = self.veritabani_baglan()
             cur = conn.cursor()
             
-            where = []
+            where_clauses = ["opf.aktif = 1"]
             params = []
             
             if q:
-                where.append("(UPPER(st.danisan_adi) LIKE ? OR UPPER(st.terapist) LIKE ?)")
+                where_clauses.append("(UPPER(d.ad_soyad) LIKE ? OR UPPER(opf.personel_adi) LIKE ?)")
                 params.extend([f"%{q}%", f"%{q}%"])
             
             # Role göre filtre
             if self.kullanici_yetki != "kurum_muduru" and self.kullanici_terapist:
-                where.append("st.terapist = ?")
+                where_clauses.append("opf.personel_adi = ?")
                 params.append(self.kullanici_terapist)
             
-            sql = """
+            where_sql = " AND ".join(where_clauses)
+            
+            # SADECE FİYAT LİSTESİNİ ÇEKİYORUZ (Seans tablosunu karıştırmıyoruz)
+            sql = f"""
                 SELECT 
-                    st.id,
-                    st.danisan_adi,
-                    st.terapist,
-                    st.tarih,
-                    COALESCE(r.hizmet_bedeli, 0) AS seans_ucreti,
-                    COALESCE(r.alinan_ucret, 0) AS alinan_odeme,
-                    COALESCE(r.kalan_borc, 0) AS kalan_borc
-                FROM seans_takvimi st
-                LEFT JOIN records r ON st.record_id = r.id OR st.id = r.seans_id
+                    opf.id,
+                    d.ad_soyad,
+                    opf.personel_adi,
+                    opf.baslangic_tarihi,
+                    opf.seans_ucreti,
+                    0, -- Alınan (Burada gösterilmiyor)
+                    0, -- Kalan (Burada gösterilmiyor)
+                    'Tanımlı Ücret' -- Durum
+                FROM ogrenci_personel_fiyatlandirma opf
+                LEFT JOIN danisanlar d ON opf.ogrenci_id = d.id
+                WHERE {where_sql}
+                ORDER BY d.ad_soyad, opf.personel_adi
             """
-            if where:
-                sql += " WHERE " + " AND ".join(where)
-            sql += " ORDER BY st.tarih DESC, st.id DESC"
             
             cur.execute(sql, tuple(params))
             rows = cur.fetchall()
+            conn.close()
             
-            # Özet hesapla (günlük/haftalık/aylık)
-            bugun = datetime.datetime.now().strftime("%Y-%m-%d")
-            hafta_bas = (datetime.datetime.now() - datetime.timedelta(days=datetime.datetime.now().weekday())).strftime("%Y-%m-%d")
-            ay_bas = datetime.datetime.now().replace(day=1).strftime("%Y-%m-%d")
-            
-            toplam_gunluk = 0.0
-            toplam_haftalik = 0.0
-            toplam_aylik = 0.0
-            toplam_seans = len(rows)
-            toplam_borc = 0.0
+            total_fee_sum = 0
             
             for idx, row in enumerate(rows):
-                seans_id, cocuk_adi, personel, tarih, seans_ucreti, alinan_odeme, kalan_borc = row
+                opf_id, ad, per, tarih, ucret, _, _, durum = row
                 
-                # Özet hesaplamaları
-                if tarih == bugun:
-                    toplam_gunluk += float(seans_ucreti or 0)
-                if tarih >= hafta_bas:
-                    toplam_haftalik += float(seans_ucreti or 0)
-                if tarih >= ay_bas:
-                    toplam_aylik += float(seans_ucreti or 0)
+                total_fee_sum += float(ucret or 0)
+                tag = "even" if idx % 2 == 0 else "odd"
                 
-                toplam_borc += float(kalan_borc or 0)
-                
-                durum = "Borçlu" if kalan_borc > 0 else "Tamamlandı"
-                tag = "borclu" if kalan_borc > 0 else "tamam"
-                if idx % 2 == 0:
-                    tag = "even"
-                else:
-                    tag = "odd"
-                
+                # Tabloya Ekle
+                # Not: Alınan/Kalan sütunları bu modda boş gelecektir çünkü burası sadece Tarife Listesi
                 tree.insert("", END, values=(
-                    seans_id,
-                    cocuk_adi,
-                    personel,
-                    tarih,
-                    format_money(seans_ucreti),
-                    format_money(alinan_odeme),
-                    format_money(kalan_borc),
+                    opf_id,
+                    ad,
+                    per,
+                    tarih, # Başlangıç tarihi
+                    format_money(ucret),
+                    "-", # Alınan yok
+                    "-", # Kalan yok
                     durum
                 ), tags=(tag,))
             
-            conn.close()
-            
-            # Özet göster
-            ttk.Label(summary_labels, text=f"📊 Toplam Seans: {toplam_seans}", font=("Segoe UI", 10)).pack(side=LEFT, padx=15)
-            ttk.Label(summary_labels, text=f"📅 Günlük: {format_money(toplam_gunluk)}", 
-                     font=("Segoe UI", 10), bootstyle="info").pack(side=LEFT, padx=15)
-            ttk.Label(summary_labels, text=f"📆 Haftalık: {format_money(toplam_haftalik)}", 
-                     font=("Segoe UI", 10), bootstyle="primary").pack(side=LEFT, padx=15)
-            ttk.Label(summary_labels, text=f"📊 Aylık: {format_money(toplam_aylik)}", 
-                     font=("Segoe UI", 10), bootstyle="success").pack(side=LEFT, padx=15)
-            ttk.Label(summary_labels, text=f"💰 Toplam Borç: {format_money(toplam_borc)}", 
-                     font=("Segoe UI", 11, "bold"), bootstyle="warning").pack(side=LEFT, padx=15)
+            # Özet Bilgi (Sadece Toplam Tanımlı Ücret)
+            ttk.Label(summary_labels, text=f"📋 Toplam Kayıt: {len(rows)}", font=("Segoe UI", 10)).pack(side=LEFT, padx=15)
+            # ttk.Label(summary_labels, text=f"💰 Ortalama Tarife: {format_money(total_fee_sum/len(rows) if len(rows)>0 else 0)}", font=("Segoe UI", 10, "bold"), bootstyle="info").pack(side=LEFT, padx=15)
         
         except Exception as e:
-            messagebox.showerror("Hata", f"Çocuk ücret listesi yüklenemedi:\n{e}")
+            messagebox.showerror("Hata", f"Liste yüklenemedi:\n{e}")
             log_exception("_cocuk_ucret_listele", e)
     
     def _fiyatlandirma_guncelle(self, parent, tree):
@@ -8265,270 +8254,210 @@ class App(ttk.Window):
             log_exception("_personel_ucret_listele", e)
     
     def excel_ucret_listesi_yukle(self):
-        """GELİŞMİŞ IMPORT: Kullanıcının yüklediği CSV/Excel geçmiş dosyalarını içe aktarır."""
+        """
+        Kullanıcıdan 2026 Seans Ücretleri Excel dosyasını ister 
+        ve _import_2026_fees_from_excel fonksiyonunu çağırır.
+        """
         path = filedialog.askopenfilename(
-            title="Geçmiş Veri Dosyasını Seç (CSV/Excel)",
-            filetypes=[("Veri Dosyaları", "*.csv *.xlsx *.xls")]
+            title="2026 Ücret Listesi Excel Dosyasını Seç",
+            filetypes=[("Excel Dosyaları", "*.xlsx *.xls")]
         )
-        if not path: return
-
-        if not messagebox.askyesno("Onay", f"{os.path.basename(path)} dosyası içe aktarılacak.\nBu işlem veritabanına yeni kayıtlar ekler. Devam?", icon='warning'):
+        
+        if not path:
             return
 
-        try:
-            conn = self.veritabani_baglan()
-            pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
-            
-            # Dosya uzantısına göre işlem
-            if path.endswith('.csv'):
-                count = pipeline.import_csv_history(path)
-            else:
-                # Excel ise CSV'ye çevirip işle (pandas engine uyumu için)
-                df = pd.read_excel(path)
-                temp_csv = os.path.join(data_dir(), "temp_import.csv")
-                df.to_csv(temp_csv, index=False, header=False)
-                count = pipeline.import_csv_history(temp_csv)
+        # Kullanıcıya onay sor
+        if not messagebox.askyesno("Onay", f"Seçilen dosya: {os.path.basename(path)}\n\nBu dosyadaki fiyatlandırmalar sisteme aktarılacak.\n('Yeni Değerlendirme' kayıtları atlanacaktır.)\n\nDevam edilsin mi?"):
+            return
 
-            conn.close()
-            
-            messagebox.showinfo("Başarılı", f"İçe aktarma tamamlandı.\n\nToplam {count} adet kayıt eklendi.")
-            self.kayitlari_listele() # Listeyi yenile
-            
-        except Exception as e:
-            
-            # 2026 güncel ücretleri yükle
-            self._import_2026_fees_from_excel(dosya_yolu)
+        # Hata veren karmaşık yapıyı kaldırıp direkt doğru fonksiyonu çağırıyoruz
+        try:
+            # V4 Import fonksiyonunu çağır (path değişkeni ile)
+            self._import_2026_fees_from_excel(path)
             
         except Exception as e:
-            messagebox.showerror("Hata", f"Excel ücret listesi yüklenemedi:\n{e}")
+            messagebox.showerror("Hata", f"İşlem başlatılamadı:\n{e}")
             log_exception("excel_ucret_listesi_yukle", e)
-    
+
+            
     def _import_2026_fees_from_excel(self, excel_path: str):
         """
-        2026 güncel seans ücretlerini Excel'den oku ve sisteme işle.
-        Görüntüdeki yapıya göre her personel için ayrı tablolar var.
-        Excel dosyasından otomatik okuma yapılır.
+        GELİŞMİŞ IMPORT V6 (Final):
+        1) Sadece sistemde kayıtlı olan danışanları işler (YENİ DANIŞAN OLUŞTURMAZ).
+        2) Fiyatları 'Fiyat Listesi' olarak kaydeder.
+        3) Gereksiz verileri filtreler.
         """
+        import pandas as pd
+        import numpy as np
+        
         try:
             conn = self.veritabani_baglan()
             cur = conn.cursor()
             
-            # Excel dosyasını oku - tüm sheet'leri kontrol et (engine belirtilmeli)
             xls = pd.ExcelFile(excel_path, engine='openpyxl')
             
-            # 2026 güncel ücret verileri (görüntüden alınan - Excel'den otomatik okuma için hazır)
-            # Format: (danisan_adi, personel_adi, seans_ucreti)
-            # Not: Excel dosyasından otomatik okuma için görüntüdeki tablo yapısına göre parser yazılmalı
-            # Şimdilik görüntüdeki verileri kullanıyoruz, Excel'den otomatik okuma için geliştirilecek
+            toplam_eklenen = 0
+            atlanan_danisan = 0
+            bulunan_hocalar = set()
             
-            fees_data = []
+            # Filtre Listesi
+            BLACKLIST = [
+                "yeni değerlendirme", "yenı degerlendırme",
+                "dakika", "dakıka", "jimnastik", "cimnastik",
+                "aas temiz", "toplam", "genel toplam"
+            ]
             
-            # Excel'den veri okuma denemesi
-            try:
-                # Tüm sheet'leri kontrol et
-                for sheet_name in xls.sheet_names:
-                    try:
-                        df = pd.read_excel(excel_path, sheet_name=sheet_name, header=None, engine='openpyxl')
-                        
-                        # Tablo başlıklarını bul (personel isimleri)
-                        current_personel = None
-                        for idx, row in df.iterrows():
-                            row_values = [str(cell).strip() if pd.notna(cell) else "" for cell in row]
-                            row_str = " ".join(row_values).lower()
-                            
-                            # Personel adını bul
-                            if "pervin" in row_str and "hoca" in row_str:
-                                current_personel = "Pervin Hoca"
-                            elif "arif" in row_str and "hoca" in row_str:
-                                current_personel = "Arif Hoca"
-                            elif "çağlar" in row_str and "hoca" in row_str:
-                                current_personel = "Çağlar Hoca"
-                            elif "sena" in row_str and "hoca" in row_str:
-                                current_personel = "Sena Hoca"
-                            elif "aybüke" in row_str and "hoca" in row_str:
-                                current_personel = "Aybüke Hoca"
-                            elif "elif" in row_str and "hoca" in row_str:
-                                current_personel = "Elif Hoca"
-                            
-                            # Danışan adı ve tutar sütunlarını bul
-                            if current_personel and len(row_values) >= 2:
-                                danisan_adi = row_values[0].strip()
-                                tutar_str = row_values[1].strip()
-                                
-                                # Tutarı parse et (Euro veya TL formatından)
-                                try:
-                                    # Euro formatından TL'ye çevir (1 Euro = ~35 TL yaklaşık)
-                                    if "€" in tutar_str or "euro" in tutar_str.lower():
-                                        tutar = float(tutar_str.replace("€", "").replace(",", ".").strip())
-                                        tutar = tutar * 35.0  # Euro'dan TL'ye çevir
-                                    else:
-                                        tutar = float(tutar_str.replace(".", "").replace(",", ".").strip())
-                                    
-                                    if danisan_adi and tutar > 0 and danisan_adi.lower() not in ["danışan adı", "tutar", "toplam"]:
-                                        fees_data.append((danisan_adi, current_personel, tutar))
-                                except (ValueError, AttributeError):
-                                    pass
-                    except Exception as e:
-                        log_exception(f"_import_2026_fees_excel_sheet_{sheet_name}", e)
+            for sheet_name in xls.sheet_names:
+                try:
+                    df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+                    
+                    # Başlıkları Bul
+                    baslik_koordinatlari = []
+                    for r in range(min(30, len(df))):
+                        for c in range(len(df.columns)):
+                            val = str(df.iloc[r, c]).strip()
+                            if "Danışan" in val or "Öğrenci" in val:
+                                baslik_koordinatlari.append((r, c))
+                    
+                    if not baslik_koordinatlari:
+                        print(f"Bilgi: '{sheet_name}' sayfasında başlık bulunamadı.")
                         continue
-            except Exception as e:
-                log_exception("_import_2026_fees_excel_read", e)
-                # Excel okuma başarısız olursa görüntüdeki verileri kullan
-                pass
-            
-            # Eğer Excel'den veri okunamadıysa, görüntüdeki verileri kullan
-            if not fees_data:
-                fees_data = [
-                    # Pervin Hoca (%100) - Görüntüden
-                    ("Alaz Dilek", "Pervin Hoca", 3700.0),
-                    ("Tuna Öztürk", "Pervin Hoca", 3500.0),
-                    ("Alaz Keskin", "Pervin Hoca", 4500.0),
-                    ("Lea Beyazıt", "Pervin Hoca", 4250.0),
-                    ("Mehmet Emre Kanıcı", "Pervin Hoca", 4400.0),
-                    ("Selim Bayram", "Pervin Hoca", 2900.0),
-                    ("Veysel Talha Altunışık", "Pervin Hoca", 4500.0),
-                    ("Musap Aydın", "Pervin Hoca", 4200.0),
-                    ("Aren Çölgeçen", "Pervin Hoca", 2800.0),
-                    ("Mustafa Asaf Esqilli", "Pervin Hoca", 4250.0),
-                    ("Pamir Çetin", "Pervin Hoca", 3600.0),
-                    ("Ata Alaz Kanber", "Pervin Hoca", 3600.0),
-                    ("Ertunga Yağız Eller", "Pervin Hoca", 4000.0),
-                    ("Göktüğ Ağır", "Pervin Hoca", 3900.0),
-                    ("Zeynep Turan", "Pervin Hoca", 3250.0),
-                    ("Yağız Bayam", "Pervin Hoca", 3900.0),
-                    ("Yıldırım Beyazıt", "Pervin Hoca", 4250.0),
-                    ("Kuzey Çamur", "Pervin Hoca", 4100.0),
-                    ("Alaz Tan Atakan", "Pervin Hoca", 3500.0),
-                    ("Aren Akbal", "Pervin Hoca", 3800.0),
-                    ("Farah Yüsra Uslu", "Pervin Hoca", 4500.0),
-                    
-                    # Arif Hoca (Sabit 2500 TL)
-                    ("Mustafa Asaf Esqilli", "Arif Hoca", 3000.0),
-                    ("Selim Bayram", "Arif Hoca", 2900.0),
-                    ("Ata Alaz Kamber", "Arif Hoca", 3400.0),
-                    ("Baran Demircan", "Arif Hoca", 3200.0),
-                    ("Oğuzhan İpek", "Arif Hoca", 3000.0),
-                    ("Tuna Aslan", "Arif Hoca", 3500.0),
-                    ("Aren Çölgeçen", "Arif Hoca", 2500.0),
-                    
-                    # Çağlar Hoca (%40)
-                    ("Alaz Dilek", "Çağlar Hoca", 2800.0),
-                    ("Aren Çölgeçen", "Çağlar Hoca", 2700.0),
-                    ("Lea Beyazıt", "Çağlar Hoca", 3100.0),
-                    
-                    # Sena Hoca (%40)
-                    ("Ata Alaz Kamber", "Sena Hoca", 2600.0),
-                    ("Hüseyin Yaman", "Sena Hoca", 2600.0),
-                    ("Gökalp Şahin", "Sena Hoca", 3000.0),
-                    
-                    # Aybüke Hoca (%40)
-                    ("Alaz Keskin", "Aybüke Hoca", 3000.0),
-                    ("Tuna Aslan", "Aybüke Hoca", 2900.0),
-                    
-                    # Elif Hoca (%40)
-                    ("Alaz Dilek", "Elif Hoca", 3500.0),
-                    ("Yağız Bayam", "Elif Hoca", 3000.0),
-                    ("Yıldırım Beyazıt", "Elif Hoca", 3800.0),
-                ]
-            
-            eklenen_cocuk = 0
-            eklenen_fiyatlandirma = 0
-            guncellenen_fiyatlandirma = 0
-            eklenen_atama = 0
-            guncellenen_atama = 0
-            
-            olusturma_tarihi = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            baslangic_tarihi = "2026-01-01"  # 2026 başlangıç tarihi
-            
-            for danisan_adi, personel_adi, seans_ucreti in fees_data:
-                if not danisan_adi or not personel_adi or seans_ucreti <= 0:
-                    continue
-                
-                # Personel adını normalize et
-                personel_normalized = self._normalize_personel_adi(personel_adi)
-                if not personel_normalized:
-                    continue
-                
-                # 1) Çocuk ID'sini bul veya oluştur
-                cur.execute("SELECT id FROM danisanlar WHERE UPPER(ad_soyad) = UPPER(?) AND aktif = 1 LIMIT 1", (danisan_adi,))
-                cocuk_row = cur.fetchone()
-                if not cocuk_row:
-                    # Çocuk yoksa ekle
-                    cur.execute(
-                        "INSERT INTO danisanlar (ad_soyad, aktif, olusturma_tarihi) VALUES (?, 1, ?)",
-                        (danisan_adi, olusturma_tarihi)
-                    )
-                    cocuk_id = cur.lastrowid
-                    eklenen_cocuk += 1
-                else:
-                    cocuk_id = cocuk_row[0]
-                
-                # 2) Öğrenci-Personel Fiyatlandırma: Eski kayıtları pasif yap, yeni kayıt ekle
-                cur.execute("""
-                    UPDATE ogrenci_personel_fiyatlandirma 
-                    SET aktif = 0, bitis_tarihi = ?, guncelleme_tarihi = ?
-                    WHERE ogrenci_id = ? AND personel_adi = ? AND aktif = 1
-                """, (baslangic_tarihi, olusturma_tarihi, cocuk_id, personel_normalized))
-                
-                # Yeni fiyatlandırma kaydı ekle
-                cur.execute("""
-                    INSERT INTO ogrenci_personel_fiyatlandirma
-                    (ogrenci_id, personel_adi, seans_ucreti, baslangic_tarihi, aktif, zam_orani, olusturma_tarihi)
-                    VALUES (?, ?, ?, ?, 1, 0, ?)
-                """, (cocuk_id, personel_normalized, seans_ucreti, baslangic_tarihi, olusturma_tarihi))
-                
-                if cur.rowcount > 0:
-                    eklenen_fiyatlandirma += 1
-                else:
-                    guncellenen_fiyatlandirma += 1
-                
-                # 3) Çocuk-Personel Atama: Eski kayıtları pasif yap, yeni kayıt ekle
-                cur.execute("""
-                    UPDATE cocuk_personel_atama 
-                    SET aktif = 0, bitis_tarihi = ?
-                    WHERE cocuk_id = ? AND personel_adi = ? AND aktif = 1
-                """, (baslangic_tarihi, cocuk_id, personel_normalized))
-                
-                # Yeni atama kaydı ekle
-                cur.execute("""
-                    INSERT INTO cocuk_personel_atama
-                    (cocuk_id, personel_adi, baslangic_tarihi, seans_ucreti, aktif, olusturma_tarihi)
-                    VALUES (?, ?, ?, ?, 1, ?)
-                """, (cocuk_id, personel_normalized, baslangic_tarihi, seans_ucreti, olusturma_tarihi))
-                
-                if cur.rowcount > 0:
-                    eklenen_atama += 1
-                else:
-                    guncellenen_atama += 1
-            
+
+                    for r_baslik, c_danisan in baslik_koordinatlari:
+                        # Hoca İsmini Bul
+                        hoca_adi = None
+                        if r_baslik > 0:
+                            val = str(df.iloc[r_baslik-1, c_danisan]).strip()
+                            if val and val.lower() != 'nan': hoca_adi = val
+                        
+                        if not hoca_adi:
+                            hoca_adi = sheet_name.replace(".csv", "").replace(".xlsx", "").strip()
+
+                        hoca_adi = hoca_adi.replace("Ödemesi", "").replace("Listesi", "").strip()
+                        bulunan_hocalar.add(hoca_adi)
+
+                        # Tutar Sütununu Bul
+                        c_tutar = c_danisan + 1
+                        for check_col in range(c_danisan + 1, min(c_danisan + 6, len(df.columns))):
+                            header_val = str(df.iloc[r_baslik, check_col]).strip()
+                            if "Tutar" in header_val or "Ücret" in header_val:
+                                c_tutar = check_col
+                                break
+
+                        # Satırları Oku
+                        for r in range(r_baslik + 1, len(df)):
+                            try:
+                                danisan = str(df.iloc[r, c_danisan]).strip()
+                                
+                                # Filtreler
+                                if not danisan or danisan.lower() in ['nan', 'none', 'toplam']: continue
+                                if "Danışan" in danisan or "Hoca" in danisan: continue
+                                if any(x in danisan.lower() for x in BLACKLIST): continue
+
+                                # Tutar Okuma
+                                tutar_raw = df.iloc[r, c_tutar]
+                                try:
+                                    t_str = str(tutar_raw).replace('₺', '').replace('TL', '').strip()
+                                    if "," in t_str and "." in t_str: t_str = t_str.replace('.', '').replace(',', '.')
+                                    elif "," in t_str: t_str = t_str.replace(',', '.')
+                                    tutar = float(t_str)
+                                except:
+                                    continue
+
+                                if tutar > 0:
+                                    # 1. KONTROL: Danışan sistemde var mı?
+                                    cur.execute("SELECT id FROM danisanlar WHERE UPPER(ad_soyad) = UPPER(?) AND aktif=1", (danisan,))
+                                    d_row = cur.fetchone()
+                                    
+                                    if not d_row:
+                                        # EĞER YOKSA ATLA (Senin isteğin bu)
+                                        print(f"Atlandı (Sistemde Yok): {danisan}")
+                                        atlanan_danisan += 1
+                                        continue
+                                    
+                                    danisan_id = d_row[0]
+                                    
+                                    # 2. Fiyat Politikasını Kaydet (Otomatik dolum için)
+                                    cur.execute("""
+                                        INSERT OR REPLACE INTO pricing_policy 
+                                        (student_id, teacher_name, price, created_at, updated_at) 
+                                        VALUES (?, ?, ?, ?, ?)
+                                    """, (
+                                        danisan_id, hoca_adi, tutar, 
+                                        datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                        datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    ))
+                                    
+                                    # 3. Listede Gözükmesi İçin Kayıt
+                                    # Önce eskileri pasife çek
+                                    cur.execute("UPDATE ogrenci_personel_fiyatlandirma SET aktif=0 WHERE ogrenci_id=? AND personel_adi=? AND aktif=1", (danisan_id, hoca_adi))
+                                    
+                                    cur.execute("""
+                                        INSERT INTO ogrenci_personel_fiyatlandirma
+                                        (ogrenci_id, personel_adi, seans_ucreti, baslangic_tarihi, aktif, zam_orani, olusturma_tarihi)
+                                        VALUES (?, ?, ?, ?, 1, 0, ?)
+                                    """, (
+                                        danisan_id, hoca_adi, tutar, "2026-01-01", 
+                                        datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    ))
+                                    
+                                    toplam_eklenen += 1
+
+                            except Exception: continue
+
+                except Exception: continue
+
             conn.commit()
             conn.close()
             
-            messagebox.showinfo(
-                "Başarılı",
-                f"2026 Güncel Ücretler Yüklendi!\n\n"
-                f"• {eklenen_cocuk} yeni çocuk eklendi\n"
-                f"• {eklenen_fiyatlandirma} yeni fiyatlandırma eklendi\n"
-                f"• {guncellenen_fiyatlandirma} fiyatlandırma güncellendi\n"
-                f"• {eklenen_atama} yeni atama eklendi\n"
-                f"• {guncellenen_atama} atama güncellendi\n\n"
-                f"Yeni seans kayıtlarında bu ücretler otomatik kullanılacak."
-            )
+            msg = f"İşlem Tamamlandı!\n\nToplam Eşleşen ve Yüklenen: {toplam_eklenen}\n"
+            msg += f"Sistemde Bulunamadığı İçin Atlanan: {atlanan_danisan}\n"
+            msg += "(Önce Danışan Template'ini yüklediğinizden emin olun)"
             
-            # Ücret takibi listesini yenile
+            messagebox.showinfo("Rapor", msg)
+            
+            # Ekranı Yenile
             try:
-                # Ücret takibi tab'ını bul ve yenile
-                if hasattr(self, '_ucret_takibi_notebook'):
-                    current_tab = self._ucret_takibi_notebook.nametowidget(self._ucret_takibi_notebook.select())
-                    if hasattr(current_tab, '_tree_cocuk'):
-                        self._cocuk_ucret_listele(current_tab)
-            except Exception:
-                pass
-            
+                if hasattr(self, 'tab_ucret_takibi'):
+                     for child in self.tab_ucret_takibi.winfo_children():
+                        for sub in child.winfo_children():
+                             if isinstance(sub, ttk.Notebook):
+                                 try:
+                                     self._cocuk_ucret_listele(sub.nametowidget(sub.tabs()[0]))
+                                 except: pass
+            except: pass
+
         except Exception as e:
-            messagebox.showerror("Hata", f"2026 ücretleri yüklenemedi:\n{e}")
-            log_exception("_import_2026_fees_from_excel", e)
-            raise
+            messagebox.showerror("Hata", f"Hata:\n{e}")
+
+            conn.commit()
+            conn.close()
+            
+            msg = f"İşlem Tamamlandı!\n\nToplam Eklenen: {toplam_eklenen}\nBulunan Hocalar: {', '.join(list(bulunan_hocalar))}"
+            if hatalar:
+                msg += "\n\nBazı sayfalarda hata oldu (logu kontrol edin)."
+            
+            messagebox.showinfo("Başarılı", msg)
+            
+            # --- EKRANI YENİLE ---
+            # Ücret Takibi ekranı açıksa yenile
+            try:
+                if hasattr(self, 'tab_ucret_takibi'):
+                     for child in self.tab_ucret_takibi.winfo_children():
+                        # Frame içindeki notebook'u bul
+                        for sub in child.winfo_children():
+                             if isinstance(sub, ttk.Notebook):
+                                 # İlk sekmeyi (Çocuk Ücretleri) yenile
+                                 try:
+                                     tab_id = sub.tabs()[0] 
+                                     page = sub.nametowidget(tab_id)
+                                     self._cocuk_ucret_listele(page)
+                                 except: pass
+            except: pass
+
+        except Exception as e:
+            messagebox.showerror("Kritik Hata", f"İçe aktarma sırasında hata:\n{e}")
+            log_exception("_import_2026_fees", e)
     
     def _normalize_personel_adi(self, personel: str) -> str:
         """Personel adını normalize et"""
@@ -10813,8 +10742,15 @@ class App(ttk.Window):
         if not sel:
             messagebox.showwarning("Uyarı", "Lütfen bir danışan seçin.")
             return
-        # ✅ DÜZELTME: Gerçek fiyatlandırma penceresini aç
-        # Çocuk Ücret Takibi tab'ındaki _fiyatlandirma_guncelle fonksiyonunu kullan
+
+        # 1. ADIM: Danışan adını EN BAŞTA al (Hata buradan kaynaklanıyordu)
+        try:
+            values = tree.item(sel[0])["values"]
+            # Genellikle 0: ID, 1: Ad Soyad'dır. Listeye göre değişebilir ama standart bu.
+            danisan_adi = values[1] 
+        except Exception:
+            danisan_adi = "Bilinmeyen Danışan"
+
         # Önce parent window'u bul
         parent_win = None
         for widget in self.winfo_children():
@@ -10829,37 +10765,58 @@ class App(ttk.Window):
         
         if parent_win:
             # Çocuk Ücret Takibi tab'ındaki tree'yi bul ve fiyatlandırma penceresini aç
-            # Önce çocuk ücret takibi tab'ını bul
             try:
                 # Ücret Takibi tab'ını bul
                 ucret_tab = None
-                for tab_id in widget.tabs():
-                    tab_widget = widget.nametowidget(tab_id)
-                    if hasattr(tab_widget, 'cocuk_ucret_tree'):
-                        ucret_tab = tab_widget
-                        break
+                for child in self.winfo_children():
+                    if isinstance(child, ttk.Notebook):
+                        for tab_id in child.tabs():
+                            w = child.nametowidget(tab_id)
+                            # Tab isminde veya içeriğinde 'ucret' geçiyor mu kontrol et
+                            # Veya direkt class attribute kontrolü
+                            if hasattr(w, 'cocuk_ucret_tree') or hasattr(w, '_tree_cocuk'):
+                                ucret_tab = w
+                                break
                 
-                if ucret_tab and hasattr(ucret_tab, 'cocuk_ucret_tree'):
-                    # Danışan adını al ve ücret takibi tab'ında bu danışanı bul
-                    danisan_adi = tree.item(sel[0])["values"][1]
-                    # Ücret takibi tab'ındaki tree'de bu danışanı seç ve fiyatlandırma penceresini aç
-                    # Geçici olarak seçimi yap
-                    for item in ucret_tab.cocuk_ucret_tree.get_children():
-                        values = ucret_tab.cocuk_ucret_tree.item(item)["values"]
-                        if len(values) > 1 and values[1] == danisan_adi:
-                            ucret_tab.cocuk_ucret_tree.selection_set(item)
-                            self._fiyatlandirma_guncelle(ucret_tab, ucret_tab.cocuk_ucret_tree)
-                            return
+                # Eğer self.tab_ucret_takibi varsa ona da bakabiliriz
+                if not ucret_tab and hasattr(self, 'tab_ucret_takibi'):
+                     # Notebook içindeki frame'e ulaşmamız lazım
+                     for child in self.tab_ucret_takibi.winfo_children():
+                         if isinstance(child, ttk.Frame): # Wrapper
+                             for sub in child.winfo_children():
+                                 if isinstance(sub, ttk.Notebook):
+                                     # İlk sayfa çocuk ücretleridir
+                                     try:
+                                         ucret_tab = sub.nametowidget(sub.tabs()[0])
+                                     except: pass
+
+                if ucret_tab and (hasattr(ucret_tab, 'cocuk_ucret_tree') or hasattr(ucret_tab, '_tree_cocuk')):
+                    target_tree = getattr(ucret_tab, 'cocuk_ucret_tree', None) or getattr(ucret_tab, '_tree_cocuk', None)
                     
-                    messagebox.showinfo("Bilgi", f"{danisan_adi} için henüz ücret takibi kaydı bulunamadı.\n\nLütfen 'Ücret Takibi' sekmesinden fiyatlandırma yapın.")
+                    if target_tree:
+                        # Ücret takibi tab'ındaki tree'de bu danışanı bulmaya çalış
+                        found = False
+                        for item in target_tree.get_children():
+                            v = target_tree.item(item)["values"]
+                            # v[1] genelde çocuk adıdır
+                            if len(v) > 1 and str(v[1]).upper() == str(danisan_adi).upper():
+                                target_tree.selection_set(item)
+                                self._fiyatlandirma_guncelle(ucret_tab, target_tree)
+                                found = True
+                                return # Başarılı çıkış
+
+                        if not found:
+                             messagebox.showinfo("Bilgi", f"'{danisan_adi}' için Ücret Takibi listesinde kayıt bulunamadı.\n\nLütfen önce 'Seans Takip' veya 'Ücret Takibi' ekranından bu öğrenciye ait bir kayıt oluşturun.")
+                    else:
+                         messagebox.showinfo("Bilgi", f"'{danisan_adi}' fiyatlandırması için 'Ücret Takibi' sekmesini kullanın.")
                 else:
-                    messagebox.showinfo("Bilgi", f"{danisan_adi} için fiyatlandırma yapmak için 'Ücret Takibi' sekmesini kullanın.")
+                    messagebox.showinfo("Bilgi", f"'{danisan_adi}' fiyatlandırması için 'Ücret Takibi' sekmesini kullanın.")
+            
             except Exception as e:
                 log_exception("_danisan_fiyatlandirma", e)
-                messagebox.showinfo("Bilgi", f"{danisan_adi} için fiyatlandırma yapmak için 'Ücret Takibi' sekmesini kullanın.")
+                messagebox.showinfo("Bilgi", f"'{danisan_adi}' fiyatlandırması için 'Ücret Takibi' sekmesini kullanın.")
         else:
-            danisan_adi = tree.item(sel[0])["values"][1]
-            messagebox.showinfo("Bilgi", f"{danisan_adi} için fiyatlandırma yapmak için 'Ücret Takibi' sekmesini kullanın.")
+            messagebox.showinfo("Bilgi", f"'{danisan_adi}' fiyatlandırması için 'Ücret Takibi' sekmesini kullanın.")
     
     def _danisan_detayli_bilgi(self, tree):
         """Danışan detaylı bilgi penceresi"""
