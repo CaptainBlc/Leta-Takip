@@ -3,11 +3,16 @@ Leta Aile ve Çocuk - Seans & Borç Takip Sistemi (v1.0 Stabil)
 
 Felsefe: Basitlik > Karmaşıklık, Stabilite > Özellik
 
+Platform: Windows, macOS ve Linux'ta bütüncül çalışacak şekilde yazılmıştır.
+- Veri dizini: Windows (LOCALAPPDATA/LetaYonetim), macOS (~/Library/Application Support/LetaYonetim), Linux (XDG_DATA_HOME).
+- Dosya/klasör açma: open_path() ile platforma uygun (startfile / open / xdg-open).
+- Pencere büyütme: maximize_window() ile zoomed veya geometry fallback.
+- UI yenileme: _refresh_borc_tables() ana thread'de (after(0, ...)) çağrılır; cross-platform tutarlılık için.
+
 ÖNEMLİ TEKNİK NOT (sahada yaşanan problem):
 - Tkinter/ttkbootstrap'ta aynı anda 2 ayrı root (2x ttk.Window) açmak,
   özellikle Windows'ta giriş alanlarının "tıklanamaz / yazılamaz" hale gelmesine yol açabilir.
 - Bu yüzden bu dosya TEK root kullanır: Ana uygulama (ttk.Window) + modal Login (ttk.Toplevel).
-  (leta_pro.py'nin stabil yaklaşımı)
 """
 
 from __future__ import annotations
@@ -23,6 +28,8 @@ import sys
 import time
 import zipfile
 import ctypes
+import unicodedata
+
 
 if sys.platform == "darwin":
     os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
@@ -196,8 +203,11 @@ def app_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 def data_dir() -> str:
-    """Veri dizinini döndür"""
+    """Veri dizinini döndür (Windows/macOS/Linux + test ortamı LETA_TEST_DATA_DIR)."""
     try:
+        test_dir = os.environ.get("LETA_TEST_DATA_DIR", "").strip()
+        if test_dir and os.path.isdir(test_dir):
+            return test_dir
         if os.path.exists(os.path.join(app_dir(), "portable_mode.txt")):
             base = app_dir()
         else:
@@ -760,7 +770,7 @@ def init_db() -> None:
             # UNIQUE constraint'i yeniden oluştur
             try:
                 cur.execute("DROP INDEX IF EXISTS idx_pricing_unique")
-            except:
+            except Exception:
                 pass
             cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_pricing_unique ON pricing_policy(student_id, teacher_name)")
     except Exception:
@@ -4566,15 +4576,21 @@ class App(ttk.Window):
         ttk.Label(win, text="Personel Seç:", font=("Segoe UI", 10, "bold")).pack(pady=5)
         # Terapist listesini settings'den çekiyoruz
         c_personel = ttk.Combobox(win, values=DEFAULT_THERAPISTS, width=30, state="readonly")
-        # Eğer dinamik liste varsa onu kullanmayı dene
+        conn_avans = None
         try:
-             conn = self.veritabani_baglan()
-             cur = conn.cursor()
-             cur.execute("SELECT therapist_name FROM settings WHERE is_active=1")
-             lst = [r[0] for r in cur.fetchall()]
-             c_personel['values'] = lst
-             conn.close()
-        except: pass
+            conn_avans = self.veritabani_baglan()
+            cur = conn_avans.cursor()
+            cur.execute("SELECT therapist_name FROM settings WHERE is_active=1")
+            lst = [r[0] for r in cur.fetchall()]
+            c_personel["values"] = lst
+        except Exception:
+            pass
+        finally:
+            try:
+                if conn_avans is not None:
+                    conn_avans.close()
+            except Exception:
+                pass
         c_personel.pack(pady=5)
 
         ttk.Label(win, text="Tutar (TL):", font=("Segoe UI", 10, "bold")).pack(pady=5)
@@ -4594,7 +4610,7 @@ class App(ttk.Window):
             personel = c_personel.get()
             try:
                 tutar = float(e_tutar.get())
-            except:
+            except Exception:
                 messagebox.showerror("Hata", "Geçerli bir tutar girin.")
                 return
 
@@ -4602,18 +4618,21 @@ class App(ttk.Window):
                 messagebox.showwarning("Eksik", "Personel seçin ve tutar girin.")
                 return
 
+            conn_kaydet = None
             try:
-                conn = self.veritabani_baglan()
-                pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
+                conn_kaydet = self.veritabani_baglan()
+                pipeline = DataPipeline(conn_kaydet, self.kullanici[0] if self.kullanici else None)
                 pipeline.personel_harici_islem(personel, tutar, islem_turu=c_tur.get(), aciklama=e_not.get())
-                conn.close()
-                
                 messagebox.showinfo("Başarılı", f"{personel} adına {tutar} TL {c_tur.get()} çıkışı yapıldı.\nKasa defterine işlendi.")
                 win.destroy()
-                
-                # Eğer açık bir rapor ekranı varsa yenile (Opsiyonel)
             except Exception as e:
                 messagebox.showerror("Hata", str(e))
+            finally:
+                try:
+                    if conn_kaydet is not None:
+                        conn_kaydet.close()
+                except Exception:
+                    pass
 
         ttk.Button(win, text="KASADAN ÖDE", bootstyle="danger", command=kaydet).pack(pady=15)
 
@@ -4676,9 +4695,9 @@ class App(ttk.Window):
                 if hasattr(self, 'conn') and self.conn:
                     try:
                         self.conn.close()
-                    except:
+                    except Exception:
                         pass
-            except:
+            except Exception:
                 pass
             
             # 3) DB dosyalarını direkt sil (CMD açmadan)
@@ -4695,7 +4714,7 @@ class App(ttk.Window):
                                 conn_temp = sqlite3.connect(db)
                                 conn_temp.execute("PRAGMA wal_checkpoint(FULL);")
                                 conn_temp.close()
-                            except:
+                            except Exception:
                                 pass
                         os.remove(f)
                         deleted_count += 1
@@ -5309,6 +5328,7 @@ class App(ttk.Window):
                 messagebox.showwarning("Uyarı", "Lütfen bir seçenek seçiniz.")
                 return
 
+            conn = None
             try:
                 conn = self.veritabani_baglan()
                 cur = conn.cursor()
@@ -5319,7 +5339,6 @@ class App(ttk.Window):
                     cur.execute("SELECT tarih, COALESCE(saat,''), danisan_adi, terapist, COALESCE(notlar,'') FROM seans_takvimi WHERE id=?", (sid,))
                     row = cur.fetchone()
                     if not row:
-                        conn.close()
                         messagebox.showerror("Hata", "Seçtiğiniz takvim seansı bulunamadı.")
                         return
                     tarih, saat, danisan, terapist, notlar = row[0], row[1], row[2], row[3], row[4]
@@ -5335,10 +5354,15 @@ class App(ttk.Window):
                     cur.execute("UPDATE records SET seans_id=? WHERE id=?", (sid, rid))
 
                 conn.commit()
-                conn.close()
             except Exception as e:
                 messagebox.showerror("Hata", f"Eşleştirme yapılamadı:\n{e}")
                 return
+            finally:
+                try:
+                    if conn is not None:
+                        conn.close()
+                except Exception:
+                    pass
 
             # listeden çıkar, sıradakine geç
             try:
@@ -5355,6 +5379,7 @@ class App(ttk.Window):
                 pass
             try:
                 self.kayitlari_listele()
+                self._refresh_borc_tables()
             except Exception:
                 pass
             self._update_sync_badge()
@@ -5665,9 +5690,10 @@ class App(ttk.Window):
             messagebox.showerror("Hata", f"Senkronizasyon hatası:\n{e}")
             return
 
-        # UI tazele: Seans listesi + Haftalık program sekmesi (varsa)
+        # UI tazele: Seans listesi + borç tabloları + Haftalık program (Windows/macOS)
         try:
             self.kayitlari_listele()
+            self._refresh_borc_tables()
         except Exception:
             pass
         try:
@@ -5815,12 +5841,12 @@ class App(ttk.Window):
         
         # Kontrol butonu
         def _kontrol_et():
+            conn = None
             try:
                 conn = self.veritabani_baglan()
                 kullanici_id = self.kullanici[0] if self.kullanici else None
                 pipeline = DataPipeline(conn, kullanici_id)
                 result = pipeline.validate_sync()
-                conn.close()
                 
                 # Sonuçları göster
                 for iid in tree.get_children():
@@ -5870,6 +5896,12 @@ class App(ttk.Window):
             except Exception as e:
                 messagebox.showerror("Hata", f"Senkronizasyon kontrolü hatası:\n{e}")
                 log_exception("senkronizasyon_kontrol", e)
+            finally:
+                try:
+                    if conn is not None:
+                        conn.close()
+                except Exception:
+                    pass
         
         # Eksik danışanları otomatik ekle
         missing_danisanlar_list = []
@@ -5878,7 +5910,7 @@ class App(ttk.Window):
             if not missing_danisanlar_list:
                 messagebox.showinfo("Bilgi", "Eklenecek danışan bulunamadı.")
                 return
-            
+            conn = None
             try:
                 conn = self.veritabani_baglan()
                 kullanici_id = self.kullanici[0] if self.kullanici else None
@@ -5890,7 +5922,6 @@ class App(ttk.Window):
                     eklenen += 1
                 
                 conn.commit()
-                conn.close()
                 
                 messagebox.showinfo("Başarılı", f"{eklenen} danışan otomatik olarak eklendi!\n\nLütfen kontrolü tekrar çalıştırın.")
                 _kontrol_et()
@@ -5898,6 +5929,12 @@ class App(ttk.Window):
             except Exception as e:
                 messagebox.showerror("Hata", f"Danışan ekleme hatası:\n{e}")
                 log_exception("eksik_danisan_ekle", e)
+            finally:
+                try:
+                    if conn is not None:
+                        conn.close()
+                except Exception:
+                    pass
         
         btn_frame = ttk.Frame(win, padding=10)
         btn_frame.pack(fill=X)
@@ -6632,6 +6669,34 @@ class App(ttk.Window):
     def veritabani_baglan(self) -> sqlite3.Connection:
         return connect_db()
 
+    def _refresh_borc_tables(self) -> None:
+        """Balance/records değişince danışan listesindeki borç sütununu yenile.
+        Hem hemen çağrılır (güncel veri görünsün) hem after(0, ...) ile tekrar (pencere/platform gecikmeleri için)."""
+        def _do_refresh():
+            try:
+                wrapper = getattr(self, "_ogrenci_bilgileri_wrapper", None)
+                if wrapper and hasattr(wrapper, "_tree_danisanlar") and hasattr(wrapper, "_ent_ara_danisan"):
+                    self._tum_danisanlari_listele(wrapper)
+            except Exception:
+                pass
+        _do_refresh()
+        try:
+            self.after(0, _do_refresh)
+        except Exception:
+            pass
+
+    def _reload_open_toplevels(self) -> None:
+        """Açık olan Toplevel pencerelerinde _reload varsa çağır (danışan/liste güncellemeleri)."""
+        try:
+            for child in self.winfo_children():
+                if isinstance(child, ttk.Toplevel) and hasattr(child, "_reload"):
+                    try:
+                        child._reload()
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
     # --- TAB 1: SEANS TAKİP ---
     def _build_records_tab(self):
         top = ttk.Labelframe(self.tab_records, text="Yeni Seans Kaydı (Tarih, Danışan Adı, Terapist, Alınacak Ücret, Alınan Ücret, Kalan Borç)", padding=16, bootstyle="primary")
@@ -6928,6 +6993,7 @@ class App(ttk.Window):
             conn.close()
             if silinen > 0:
                 self.kayitlari_listele()
+                self._refresh_borc_tables()
             messagebox.showinfo("Tamamlandı", f"{silinen} kayıt silindi.")
         except Exception as e:
             messagebox.showerror("Hata", f"Silme hatası:\n{e}")
@@ -7263,17 +7329,10 @@ class App(ttk.Window):
                 except Exception:
                     pass
             try:
-                # ana listeyi tazele (varsa)
                 if hasattr(self, "kayitlari_listele"):
                     self.kayitlari_listele()
-                # Danışan yönetimi penceresi açıksa, listeyi yenile
-                for child in self.winfo_children():
-                    if isinstance(child, ttk.Toplevel):
-                        if hasattr(child, "_reload"):
-                            try:
-                                child._reload()
-                            except Exception:
-                                pass
+                    self._refresh_borc_tables()
+                self._reload_open_toplevels()
             except Exception:
                 pass
 
@@ -7407,6 +7466,9 @@ class App(ttk.Window):
                     conn_sync.close()
                 except Exception:
                     pass
+
+                # 2b) Öğrenci Bilgileri tabındaki borç tablosunu yenile
+                self._refresh_borc_tables()
                 
                 # 3) Fiyat politikasını güncelle (gelecek seanslar için otomatik atama)
                 if bedel > 0:
@@ -7459,27 +7521,22 @@ class App(ttk.Window):
         self.cmb_danisan.focus_set()
         
         # Danışan listesini yenile (yeni eklenen danışanlar görünsün)
+        conn = None
         try:
             conn = self.veritabani_baglan()
             cur = conn.cursor()
             cur.execute("SELECT ad_soyad FROM danisanlar WHERE aktif=1 ORDER BY ad_soyad")
             danisan_listesi = [row[0] for row in cur.fetchall()]
-            conn.close()
             self.cmb_danisan["values"] = danisan_listesi
         except Exception:
             pass
-        
-        # Danışan yönetimi penceresi açıksa, listeyi yenile
-        try:
-            for child in self.winfo_children():
-                if isinstance(child, ttk.Toplevel):
-                    if hasattr(child, "_reload"):
-                        try:
-                            child._reload()
-                        except Exception:
-                            pass
-        except Exception:
-            pass
+        finally:
+            try:
+                if conn is not None:
+                    conn.close()
+            except Exception:
+                pass
+        self._reload_open_toplevels()
         self.kayitlari_listele()
 
     def kayitlari_listele(self):
@@ -7665,9 +7722,9 @@ class App(ttk.Window):
                     kalan = float((cur.fetchone() or [0])[0] or 0)
                     conn.close()
                     
-                    # ✅ OTOMASYON: Ödeme eklendiğinde otomatik senkronizasyon
-                    # Pipeline zaten tüm tabloları güncelledi, sadece UI'ı yenile
+                    # ✅ OTOMASYON: Ödeme eklendiğinde otomatik senkronizasyon (Windows/macOS)
                     self.kayitlari_listele()
+                    self._refresh_borc_tables()
                     
                     if kalan <= 0:
                         messagebox.showinfo(
@@ -7696,6 +7753,7 @@ class App(ttk.Window):
             
             win.destroy()
             self.kayitlari_listele()
+            self._refresh_borc_tables()
 
         ttk.Button(frm, text="KAYDET", bootstyle="success", command=_save).grid(row=4, column=0, columnspan=2, sticky=EW, padx=6, pady=(16, 0))
         ent.bind("<Return>", lambda e: _save())
@@ -7736,8 +7794,9 @@ class App(ttk.Window):
                     f"Tüm tablolar otomatik senkronize edildi!"
                 )
                 
-                # Listeyi yenile
+                # Listeyi yenile + borç tablolarını yenile (Windows/macOS)
                 self.kayitlari_listele()
+                self._refresh_borc_tables()
             else:
                 messagebox.showerror("Hata", "Kayıt silinirken bir hata oluştu!")
             
@@ -8205,10 +8264,11 @@ class App(ttk.Window):
                     
                     messagebox.showinfo("Başarılı", f"Fiyatlandırma güncellendi!\n\nÖğrenci: {cocuk_adi}\nPersonel: {personel_adi}\nÜcret: {format_money(ucret)}\n\nGelecek seansların ücreti otomatik güncellendi.")
                     win.destroy()
-                    # ✅ OTOMATIK YENİLENME: Tabloları otomatik yenile
+                    # ✅ OTOMATIK YENİLENME: Tabloları otomatik yenile (Windows/macOS)
                     self._cocuk_ucret_listele(parent)
                     if hasattr(self, 'kayitlari_listele'):
                         self.kayitlari_listele()
+                    self._refresh_borc_tables()
                 
                 except Exception as e:
                     messagebox.showerror("Hata", f"Fiyatlandırma güncellenemedi:\n{e}")
@@ -8381,6 +8441,7 @@ class App(ttk.Window):
         import pandas as pd
         import numpy as np
         
+        conn = None
         try:
             conn = self.veritabani_baglan()
             cur = conn.cursor()
@@ -8452,7 +8513,7 @@ class App(ttk.Window):
                                     if "," in t_str and "." in t_str: t_str = t_str.replace('.', '').replace(',', '.')
                                     elif "," in t_str: t_str = t_str.replace(',', '.')
                                     tutar = float(t_str)
-                                except:
+                                except Exception:
                                     continue
 
                                 if tutar > 0:
@@ -8513,7 +8574,6 @@ class App(ttk.Window):
                 except Exception: continue
 
             conn.commit()
-            conn.close()
             
             msg = f"İşlem Tamamlandı!\n\nToplam Eşleşen ve Yüklenen: {toplam_eklenen}\n"
             msg += f"Sistemde Bulunamadığı İçin Atlanan: {atlanan_danisan}\n"
@@ -8529,40 +8589,20 @@ class App(ttk.Window):
                              if isinstance(sub, ttk.Notebook):
                                  try:
                                      self._cocuk_ucret_listele(sub.nametowidget(sub.tabs()[0]))
-                                 except: pass
-            except: pass
+                                 except Exception:
+                                     pass
+            except Exception:
+                pass
 
         except Exception as e:
-            messagebox.showerror("Hata", f"Hata:\n{e}")
-
-            conn.commit()
-            conn.close()
-            
-            msg = f"İşlem Tamamlandı!\n\nToplam Eklenen: {toplam_eklenen}\nBulunan Hocalar: {', '.join(list(bulunan_hocalar))}"
-            if hatalar:
-                msg += "\n\nBazı sayfalarda hata oldu (logu kontrol edin)."
-            
-            messagebox.showinfo("Başarılı", msg)
-            
-            # --- EKRANI YENİLE ---
-            # Ücret Takibi ekranı açıksa yenile
+            messagebox.showerror("Hata", f"İçe aktarma sırasında hata:\n{e}")
+            log_exception("_import_2026_fees_from_excel", e)
+        finally:
             try:
-                if hasattr(self, 'tab_ucret_takibi'):
-                     for child in self.tab_ucret_takibi.winfo_children():
-                        # Frame içindeki notebook'u bul
-                        for sub in child.winfo_children():
-                             if isinstance(sub, ttk.Notebook):
-                                 # İlk sekmeyi (Çocuk Ücretleri) yenile
-                                 try:
-                                     tab_id = sub.tabs()[0] 
-                                     page = sub.nametowidget(tab_id)
-                                     self._cocuk_ucret_listele(page)
-                                 except: pass
-            except: pass
-
-        except Exception as e:
-            messagebox.showerror("Kritik Hata", f"İçe aktarma sırasında hata:\n{e}")
-            log_exception("_import_2026_fees", e)
+                if conn is not None:
+                    conn.close()
+            except Exception:
+                pass
     
     def _normalize_personel_adi(self, personel: str) -> str:
         """Personel adını normalize et"""
@@ -10150,6 +10190,8 @@ class App(ttk.Window):
         """Öğrenci Bilgileri Tab - Tüm danışanların bilgileri"""
         wrapper = ttk.Frame(self.tab_ogrenci_bilgileri, padding=10)
         wrapper.pack(fill=BOTH, expand=True)
+        # Seans ekleme sonrası borç tablosunu yenilemek için sakla
+        self._ogrenci_bilgileri_wrapper = wrapper
         
         # Başlık
         head = ttk.Frame(wrapper)
@@ -10180,7 +10222,7 @@ class App(ttk.Window):
         frame_tree = ttk.Frame(wrapper)
         frame_tree.pack(fill=BOTH, expand=True)
         # Tabloya göre: AD SOYAD, DOĞUM TARİHİ, VELİ ADI, VELİ TELEFON, ADRES (danışan telefon/email yok; iletişim veli bilgilerinden)
-        cols = ("ID", "AD SOYAD", "DOĞUM TARİHİ", "VELİ ADI", "VELİ TELEFON", "ADRES", "Bakiye (₺)", "Durum")
+        cols = ("ID", "AD SOYAD", "DOĞUM TARİHİ", "VELİ ADI", "VELİ TELEFON", "ADRES", "Borç (₺)", "Durum")
         tree_danisanlar = ttk.Treeview(frame_tree, columns=cols, show="headings", style="Strong.Treeview")
         for c in cols:
             tree_danisanlar.heading(c, text=c)
@@ -10196,7 +10238,7 @@ class App(ttk.Window):
                 tree_danisanlar.column(c, width=120)
             elif c == "ADRES":
                 tree_danisanlar.column(c, width=180)
-            elif c == "Bakiye (₺)":
+            elif c == "Borç (₺)":
                 tree_danisanlar.column(c, width=100, anchor="e")
             else:
                 tree_danisanlar.column(c, width=80)
@@ -10742,25 +10784,26 @@ class App(ttk.Window):
             conn = self.veritabani_baglan()
             cur = conn.cursor()
             
-            # Tabloya göre: AD SOYAD, DOĞUM TARİHİ, VELİ ADI, VELİ TELEFON, ADRES (telefon/email sütun yok)
+            # Borç: records'tan canlı hesapla; danışan adı büyük/küçük harf farkına duyarsız eşleştir
+            subq = "(SELECT COALESCE(SUM(r.kalan_borc), 0) FROM records r WHERE UPPER(TRIM(r.danisan_adi)) = UPPER(TRIM(d.ad_soyad)))"
             if ara_metni:
                 cur.execute(
-                    """
-                    SELECT id, ad_soyad, dogum_tarihi, veli_adi, veli_telefon, COALESCE(adres,''),
-                           COALESCE(balance, 0) as balance, aktif
-                    FROM danisanlar
-                    WHERE UPPER(ad_soyad) LIKE ? OR UPPER(veli_adi) LIKE ? OR veli_telefon LIKE ?
-                    ORDER BY ad_soyad
+                    f"""
+                    SELECT d.id, d.ad_soyad, d.dogum_tarihi, d.veli_adi, d.veli_telefon, COALESCE(d.adres,''),
+                           {subq} as balance, d.aktif
+                    FROM danisanlar d
+                    WHERE UPPER(d.ad_soyad) LIKE ? OR UPPER(d.veli_adi) LIKE ? OR d.veli_telefon LIKE ?
+                    ORDER BY d.ad_soyad
                     """,
                     (f"%{ara_metni}%", f"%{ara_metni}%", f"%{ara_metni}%")
                 )
             else:
                 cur.execute(
-                    """
-                    SELECT id, ad_soyad, dogum_tarihi, veli_adi, veli_telefon, COALESCE(adres,''),
-                           COALESCE(balance, 0) as balance, aktif
-                    FROM danisanlar
-                    ORDER BY ad_soyad
+                    f"""
+                    SELECT d.id, d.ad_soyad, d.dogum_tarihi, d.veli_adi, d.veli_telefon, COALESCE(d.adres,''),
+                           {subq} as balance, d.aktif
+                    FROM danisanlar d
+                    ORDER BY d.ad_soyad
                     """
                 )
             
@@ -10893,7 +10936,8 @@ class App(ttk.Window):
                                      # İlk sayfa çocuk ücretleridir
                                      try:
                                          ucret_tab = sub.nametowidget(sub.tabs()[0])
-                                     except: pass
+                                     except Exception:
+                                         pass
 
                 if ucret_tab and (hasattr(ucret_tab, 'cocuk_ucret_tree') or hasattr(ucret_tab, '_tree_cocuk')):
                     target_tree = getattr(ucret_tab, 'cocuk_ucret_tree', None) or getattr(ucret_tab, '_tree_cocuk', None)
@@ -12241,48 +12285,55 @@ class App(ttk.Window):
             "Bu sürüm tek pencere (tek root) ile stabil çalışacak şekilde hazırlanmıştır.",
         )
     def popup_eski_borc(self):
-        """Eskiye dönük borç ekleme penceresi"""
+        """Eskiye dönük borç (devir bakiyesi) ekler. Kurum para takibi için kayıt sisteme işlenir."""
         win = ttk.Toplevel(self)
         win.title("Eski Borç / Devir Bakiyesi Ekle")
         center_window(win, 400, 250)
         
         ttk.Label(win, text="Öğrenci Seç:", font=("Segoe UI", 10, "bold")).pack(pady=5)
-        # Mevcut danışan listesini kullan (hata almamak için kontrol ekledik)
         values = []
-        if hasattr(self, 'cmb_danisan') and hasattr(self.cmb_danisan, 'cget'):
-             values = self.cmb_danisan['values']
-        
+        if hasattr(self, "cmb_danisan") and hasattr(self.cmb_danisan, "cget"):
+            values = list(self.cmb_danisan["values"]) if self.cmb_danisan["values"] else []
         c_danisan = ttk.Combobox(win, values=values, width=30)
         c_danisan.pack(pady=5)
 
-        ttk.Label(win, text="Borç Tutarı (TL):", font=("Segoe UI", 10, "bold")).pack(pady=5)
+        ttk.Label(win, text="Eklenecek devir borcu (TL):", font=("Segoe UI", 10, "bold")).pack(pady=5)
         e_tutar = ttk.Entry(win)
         e_tutar.pack(pady=5)
 
         def kaydet():
-            danisan = c_danisan.get()
+            danisan = (c_danisan.get() or "").strip()
             try:
-                tutar = float(e_tutar.get())
-            except:
+                tutar = float((e_tutar.get() or "0").replace(",", "."))
+            except Exception:
                 messagebox.showerror("Hata", "Lütfen geçerli bir sayı girin.")
                 return
-            
-            if not danisan or tutar <= 0:
+            if not danisan:
                 messagebox.showwarning("Eksik", "Öğrenci seçin ve tutar girin.")
                 return
+            if tutar <= 0:
+                messagebox.showwarning("Eksik", "Pozitif bir tutar girin.")
+                return
 
+            conn = None
             try:
                 conn = self.veritabani_baglan()
                 pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
                 pipeline.eski_borc_ekle(danisan, tutar)
-                conn.close()
-                messagebox.showinfo("Başarılı", f"{danisan} kişisine {tutar} TL eski borç eklendi.\nBakiye güncellendi.")
+                messagebox.showinfo("Başarılı", f"{danisan} için {format_money(tutar)} devir borcu eklendi.\nKurum kayıtlarına işlendi.")
                 win.destroy()
-                self.kayitlari_listele() # Listeyi yenile
+                self.kayitlari_listele()
+                self._refresh_borc_tables()
             except Exception as e:
                 messagebox.showerror("Hata", str(e))
+            finally:
+                try:
+                    if conn is not None:
+                        conn.close()
+                except Exception:
+                    pass
 
-        ttk.Button(win, text="BORCU İŞLE", bootstyle="danger", command=kaydet).pack(pady=15)
+        ttk.Button(win, text="DEVİR BORCU EKLE", bootstyle="danger", command=kaydet).pack(pady=15)
 
     def popup_toplu_odeme(self):
         """Toplu ödeme alma penceresi"""
@@ -12312,22 +12363,29 @@ class App(ttk.Window):
             danisan = c_danisan.get()
             try:
                 tutar = float(e_tutar.get())
-            except:
+            except Exception:
                 messagebox.showerror("Hata", "Geçerli tutar girin.")
                 return
 
             if not danisan or tutar <= 0: return
 
+            conn = None
             try:
                 conn = self.veritabani_baglan()
                 pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
                 pipeline.toplu_odeme_al(danisan, tutar, aciklama=e_aciklama.get())
-                conn.close()
                 messagebox.showinfo("Başarılı", f"{tutar} TL tahsilat alındı.\nKasa defterine işlendi ve bakiyeden düşüldü.")
                 win.destroy()
                 self.kayitlari_listele()
+                self._refresh_borc_tables()
             except Exception as e:
                 messagebox.showerror("Hata", str(e))
+            finally:
+                try:
+                    if conn is not None:
+                        conn.close()
+                except Exception:
+                    pass
 
         ttk.Button(win, text="TAHSİLAT YAP", bootstyle="success", command=kaydet).pack(pady=15)    
 
@@ -13657,10 +13715,11 @@ class App(ttk.Window):
                     log_exception("_edit_amount_pipeline", e)
                     return
                 d.destroy()
-                # ✅ OTOMATIK YENİLENME: Tabloları otomatik yenile
+                # ✅ OTOMATIK YENİLENME: Tabloları otomatik yenile (Windows/macOS)
                 _load()
                 if hasattr(self, 'kayitlari_listele'):
                     self.kayitlari_listele()
+                self._refresh_borc_tables()
 
             ttk.Button(f, text="KAYDET", bootstyle="success", command=_save).pack(fill=X, pady=(10, 0))
 
