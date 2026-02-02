@@ -6979,6 +6979,7 @@ class App(ttk.Window):
             f"{len(ids)} adet kayıt silinecek.\n\nİlgili tüm veriler (seans takvimi, records, ödemeler, kasa kayıtları) silinecektir!\n\nDevam etmek istiyor musunuz?"
         ):
             return
+        conn = None
         try:
             conn = self.veritabani_baglan()
             kullanici_id = self.kullanici[0] if self.kullanici else None
@@ -6990,7 +6991,6 @@ class App(ttk.Window):
                         silinen += 1
                 except Exception as e:
                     log_exception("seclileri_sil_one", e)
-            conn.close()
             if silinen > 0:
                 self.kayitlari_listele()
                 self._refresh_borc_tables()
@@ -6998,6 +6998,12 @@ class App(ttk.Window):
         except Exception as e:
             messagebox.showerror("Hata", f"Silme hatası:\n{e}")
             log_exception("seclileri_sil", e)
+        finally:
+            try:
+                if conn is not None:
+                    conn.close()
+            except Exception:
+                pass
 
     def _tarih_db(self) -> str:
         try:
