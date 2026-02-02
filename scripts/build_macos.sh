@@ -5,8 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
-VERSION="${1:-1.0}"
-APP_NAME="Leta_Yonetim_Paneli_v1_0"
+VERSION="${1:-1.3}"
+APP_NAME="Leta_Pipeline_v${VERSION//./_}"
 
 echo "== Leta macOS build (v${VERSION}) =="
 
@@ -25,4 +25,3 @@ python3 -m PyInstaller \
   "leta_app.py"
 
 echo "OK -> dist/${APP_NAME}.app"
-

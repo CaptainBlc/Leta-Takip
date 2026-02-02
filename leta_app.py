@@ -22,6 +22,10 @@ import subprocess
 import sys
 import time
 import zipfile
+import ctypes
+
+if sys.platform == "darwin":
+    os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
 
 import pandas as pd
 import ttkbootstrap as ttk
@@ -296,6 +300,47 @@ def spawn_detached(cmd: list[str]) -> None:
             subprocess.Popen(cmd, close_fds=True, start_new_session=True)
     except Exception:
         subprocess.Popen(cmd, close_fds=True)
+
+def configure_windows_dpi_awareness() -> None:
+    """Windows için DPI farkındalığını açarak net görüntü sağlar."""
+    if not IS_WINDOWS:
+        return
+    try:
+        shcore = getattr(ctypes, "windll", None)
+        if not shcore:
+            return
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+            return
+        except Exception:
+            pass
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+def configure_macos_scaling(win) -> None:
+    """macOS için ekran DPI'ına göre ölçek ayarla."""
+    if not IS_MAC or not win:
+        return
+    try:
+        try:
+            win.tk.call("tk::mac::useThemedToplevel", 1)
+        except Exception:
+            pass
+        try:
+            win.tk.call("set", "::tk::mac::useCompatibilityMetrics", 0)
+        except Exception:
+            pass
+        dpi = float(win.winfo_fpixels("1i") or 0)
+        if dpi <= 0:
+            return
+        scale = max(1.0, dpi / 72.0)
+        win.tk.call("tk", "scaling", scale)
+    except Exception:
+        pass
 
 def ensure_user_guide_present() -> None:
     """Kılavuz dosyası yoksa kopyala"""
@@ -4479,6 +4524,7 @@ class DataPipeline:
 class App(ttk.Window):
     def __init__(self):
         super().__init__(themename="flatly")
+        configure_macos_scaling(self)
         # TEK PENCERE LOGIN: En stabil yaklaşım (Toplevel/grab/topmost yok)
         self.title(f"Giriş - Leta  |  {APP_VERSION}")
         center_window(self, 520, 420)
@@ -16521,6 +16567,7 @@ def main():
     except Exception:
         pass
 
+    configure_windows_dpi_awareness()
     app = App()
     app.mainloop()
 

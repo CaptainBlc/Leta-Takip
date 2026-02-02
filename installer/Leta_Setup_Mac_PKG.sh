@@ -10,7 +10,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
 VERSION="${1:-1.3}"
-APP_NAME="Leta_Pipeline_v1_3"
+APP_NAME="Leta_Pipeline_v${VERSION//./_}"
 IDENTIFIER="com.leta.takip"
 DISPLAY_NAME="Leta Takip"
 
@@ -74,8 +74,8 @@ if [ -f "KULLANIM_KILAVUZU.txt" ]; then
 fi
 
 # PKG dosya yolları
-PKG_COMPONENT="dist/${APP_NAME}_${VERSION}_component.pkg"
-PKG_FINAL="dist/${APP_NAME}_${VERSION}.pkg"
+PKG_COMPONENT="dist/Leta_Takip_${VERSION}_component.pkg"
+PKG_FINAL="dist/Leta_Takip_${VERSION}.pkg"
 
 rm -f "${PKG_COMPONENT}" "${PKG_FINAL}"
 
@@ -147,4 +147,3 @@ echo ""
 echo "🚀 Kurulum için:"
 echo "   open ${PKG_FINAL}"
 echo ""
-
