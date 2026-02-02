@@ -8365,17 +8365,31 @@ class App(ttk.Window):
                                     continue
 
                                 if tutar > 0:
-                                    # 1. KONTROL: Danışan sistemde var mı?
-                                    cur.execute("SELECT id FROM danisanlar WHERE UPPER(ad_soyad) = UPPER(?) AND aktif=1", (danisan,))
+                                    # 1. KONTROL: Danışan sistemde var mı? (Türkçe karakter uyumlu)
+                                    # Mac ve Windows arasındaki İ/I sorununu çözer
+                                    danisan_clean = danisan.strip()
+                                    cur.execute("""
+                                        SELECT id FROM danisanlar 
+                                        WHERE UPPER(REPLACE(REPLACE(ad_soyad, 'İ', 'I'), 'ı', 'I')) = UPPER(REPLACE(REPLACE(?, 'İ', 'I'), 'ı', 'I')) 
+                                        AND aktif = 1 LIMIT 1
+                                    """, (danisan_clean,))
+                                    
                                     d_row = cur.fetchone()
-                                    
+
+                                    # Eğer bulunamazsa otomatik ekleme mantığı buraya gelecek...
                                     if not d_row:
-                                        # EĞER YOKSA ATLA (Senin isteğin bu)
-                                        print(f"Atlandı (Sistemde Yok): {danisan}")
-                                        atlanan_danisan += 1
-                                        continue
-                                    
-                                    danisan_id = d_row[0]
+                                        try:
+                                            cur.execute(
+                                                "INSERT INTO danisanlar (ad_soyad, aktif, olusturma_tarihi) VALUES (?, 1, ?)",
+                                                (danisan_clean, datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                                            )
+                                            danisan_id = cur.lastrowid
+                                            toplam_eklenen += 1 # Sayaç (isteğe bağlı)
+                                        except Exception:
+                                            atlanan_danisan += 1
+                                            continue
+                                    else:
+                                        danisan_id = d_row[0]
                                     
                                     # 2. Fiyat Politikasını Kaydet (Otomatik dolum için)
                                     cur.execute("""
