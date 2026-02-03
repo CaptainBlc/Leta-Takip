@@ -6928,7 +6928,7 @@ class App(ttk.Window):
         self.ctx.add_command(label="Kaydı Sil", command=self.kayit_sil)
         self.ctx.add_separator()
         self.ctx.add_command(label="Seçilileri Sil", command=self.seclileri_sil)
-        self.tree.bind("<Button-3>", self._ctx_open)
+        self.tree.bind("<Button-2>", self._ctx_open)
 
     def _ctx_open(self, event):
         iid = self.tree.identify_row(event.y)
@@ -7906,7 +7906,7 @@ class App(ttk.Window):
             menu.add_command(label="📊 Detaylı Rapor", command=lambda: self._cocuk_detayli_rapor(parent, tree))
             menu.post(event.x_root, event.y_root)
         
-        tree.bind("<Button-3>", cocuk_ucret_menu)
+        tree.bind("<Button-2>", cocuk_ucret_menu)
         
         # Özet bilgiler
         summary_frame = ttk.Labelframe(parent, text="Özet", padding=10, bootstyle="secondary")
@@ -10266,7 +10266,7 @@ class App(ttk.Window):
             menu.add_command(label="🗑️ Aktif/Pasif", command=lambda: self._danisan_aktif_pasif_from_tree(tree_danisanlar))
             menu.post(event.x_root, event.y_root)
         
-        tree_danisanlar.bind("<Button-3>", danisan_menu)
+        tree_danisanlar.bind("<Button-2>", danisan_menu)
         
         wrapper._tree_danisanlar = tree_danisanlar
         self.tab_ogrenci_bilgileri.danisan_tree = tree_danisanlar
@@ -10350,7 +10350,7 @@ class App(ttk.Window):
             menu.add_command(label="🗑️ Sil", command=lambda: self._veli_sil(parent, tree))
             menu.post(event.x_root, event.y_root)
         
-        tree.bind("<Button-3>", veli_menu)
+        tree.bind("<Button-2>", veli_menu)
         
         parent._tree_aile = tree
         parent._cmb_ogrenci = cmb_ogrenci
