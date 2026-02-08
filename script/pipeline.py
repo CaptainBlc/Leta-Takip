@@ -586,7 +586,7 @@ class DataPipeline:
             return None
 
     def eski_borc_kayitlari_getir(self, danisan_adi: str | None = None) -> list[dict]:
-        """DB içindeki eski/yeni borç kayıtlarını listeler ve silinebilirliğini raporlar."""
+        """DB içindeki borçlu kayıtları listeler (eski/yeni format uyumlu)."""
         out: list[dict] = []
         if not self.table_exists("records"):
             return out
@@ -598,7 +598,6 @@ class DataPipeline:
                        COALESCE(r.hizmet_bedeli,0), COALESCE(r.alinan_ucret,0), COALESCE(r.kalan_borc,0),
                        COALESCE(r.notlar,''), COALESCE(r.seans_id,0)
                 FROM records r
-                WHERE COALESCE(r.kalan_borc,0) > 0
                 ORDER BY r.tarih DESC, r.id DESC
                 """
             )
@@ -606,6 +605,14 @@ class DataPipeline:
                 dan_n = self._normalize_name(str(danisan or ""))
                 if hedef and dan_n != hedef:
                     continue
+
+                hizmet_f = self._safe_float(hizmet)
+                alinan_f = self._safe_float(alinan)
+                kalan_raw = self._safe_float(kalan)
+                kalan_f = kalan_raw if kalan_raw > 0 else max(0.0, hizmet_f - alinan_f)
+                if kalan_f <= 0:
+                    continue
+
                 notlar_n = self._normalize_name(str(notlar or ""))
                 seans_bagli = int(seans_id or 0) != 0
                 if not seans_bagli and self.table_exists("seans_takvimi"):
@@ -613,15 +620,15 @@ class DataPipeline:
                     seans_bagli = self.cur.fetchone() is not None
 
                 tur = "devir_borc" if ("DEVIR" in notlar_n and "BORC" in notlar_n) else "kayit_borcu"
-                silinebilir = (not seans_bagli) and (self._safe_float(alinan) <= 0)
+                silinebilir = (not seans_bagli) and (alinan_f <= 0)
                 out.append({
                     "record_id": int(rid),
                     "tarih": tarih,
                     "danisan": str(danisan or ""),
                     "terapist": str(terapist or ""),
-                    "hizmet_bedeli": self._safe_float(hizmet),
-                    "alinan_ucret": self._safe_float(alinan),
-                    "kalan_borc": self._safe_float(kalan),
+                    "hizmet_bedeli": hizmet_f,
+                    "alinan_ucret": alinan_f,
+                    "kalan_borc": kalan_f,
                     "notlar": str(notlar or ""),
                     "seans_id": int(seans_id or 0),
                     "seans_bagli": seans_bagli,
@@ -1267,7 +1274,7 @@ class DataPipeline:
             return False
 
     def toplu_odeme_kayitlari_getir(self, danisan_adi: str | None = None) -> list[dict]:
-        """DB'deki toplu/peşinat/ödeme tahsilat kayıtlarını yakalar ve eşleşmeyi doğrular."""
+        """DB'deki tahsilat/toplu ödeme satırlarını eski-yeni formatla getirir."""
         out: list[dict] = []
         if not self.table_exists("kasa_hareketleri"):
             return out
@@ -1277,12 +1284,15 @@ class DataPipeline:
                 SELECT id, COALESCE(tarih,''), COALESCE(aciklama,''), COALESCE(tutar,0),
                        COALESCE(record_id,0), COALESCE(tip,''), COALESCE(gider_kategorisi,'')
                 FROM kasa_hareketleri
-                WHERE COALESCE(tip,'')='giren'
                 ORDER BY id DESC
                 """
             )
             hedef = self._normalize_name((danisan_adi or "").strip()) if danisan_adi else ""
             for kid, tarih, aciklama, tutar, rid, tip, gider_kat in self.cur.fetchall() or []:
+                tip_norm = self._normalize_name(str(tip or ""))
+                if tip_norm not in {"GIREN", "IN", "GELIR"}:
+                    continue
+
                 aciklama_txt = str(aciklama or "")
                 ac_norm = self._normalize_name(aciklama_txt)
                 gider_norm = self._normalize_name(str(gider_kat or ""))
@@ -1309,7 +1319,6 @@ class DataPipeline:
 
                 if not dan and rec_ad:
                     dan = rec_ad
-
                 if hedef and self._normalize_name(dan) != hedef:
                     continue
 
@@ -1352,7 +1361,8 @@ class DataPipeline:
                 return False
             aciklama, tip = row
             ac_norm = self._normalize_name(str(aciklama or ""))
-            if str(tip or "") != "giren" or not (("TOPLU ODEME" in ac_norm) or ("PESINAT" in ac_norm) or ac_norm.startswith("ODEME:")):
+            tip_norm = self._normalize_name(str(tip or ""))
+            if tip_norm not in {"GIREN", "IN", "GELIR"} or not (("TOPLU ODEME" in ac_norm) or ("PESINAT" in ac_norm) or ac_norm.startswith("ODEME:")):
                 self._set_error("Seçilen kasa kaydı toplu ödeme/peşinat kaydı değil.")
                 return False
             ok = self.kasa_hareket_sil(int(kasa_id))
