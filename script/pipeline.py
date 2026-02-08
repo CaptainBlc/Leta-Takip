@@ -147,6 +147,15 @@ class DataPipeline:
         except Exception:
             return None
 
+
+    def _table_has_column(self, table: str, column: str) -> bool:
+        try:
+            self.cur.execute(f"PRAGMA table_info({table})")
+            cols = [str(r[1]) for r in (self.cur.fetchall() or []) if len(r) > 1]
+            return column in cols
+        except Exception:
+            return False
+
     def _add_kasa(
         self,
         tarih: str,
@@ -611,6 +620,37 @@ class DataPipeline:
                     od = self.cur.fetchone()
                     if od:
                         self.cur.execute("DELETE FROM odeme_hareketleri WHERE id=?", (int(od[0]),))
+
+            # Personel ücret ödemesi silindiyse takip kaydını "beklemede" durumuna al
+            if tip == "cikan" and self.table_exists("personel_ucret_takibi"):
+                is_personel = (str(gider_kategorisi or "").lower() == "personel") or ("personel ücret" in str(aciklama or "").lower())
+                if is_personel:
+                    personel_adi = ""
+                    try:
+                        txt = str(aciklama or "")
+                        if ":" in txt:
+                            personel_adi = txt.split(":", 1)[1].strip()
+                    except Exception:
+                        personel_adi = ""
+
+                    sql = "SELECT id FROM personel_ucret_takibi WHERE COALESCE(odeme_durumu,'beklemede')='odendi'"
+                    params = []
+                    if personel_adi:
+                        sql += " AND COALESCE(personel_adi,'')=?"
+                        params.append(personel_adi)
+                    sql += " AND ABS(COALESCE(personel_ucreti,0)-?) < 0.0001"
+                    params.append(tutar)
+                    if seans_id and self._table_has_column("personel_ucret_takibi", "seans_id"):
+                        sql += " AND COALESCE(seans_id,0)=?"
+                        params.append(seans_id)
+                    sql += " ORDER BY COALESCE(odeme_tarihi,'') DESC, id DESC LIMIT 1"
+                    self.cur.execute(sql, tuple(params))
+                    put = self.cur.fetchone()
+                    if put:
+                        self.cur.execute(
+                            "UPDATE personel_ucret_takibi SET odeme_durumu='beklemede', odeme_tarihi=NULL WHERE id=?",
+                            (int(put[0]),),
+                        )
 
             if self.table_exists("sistem_gunlugu"):
                 self.cur.execute(

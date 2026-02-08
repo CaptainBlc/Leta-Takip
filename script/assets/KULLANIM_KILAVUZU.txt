@@ -46,14 +46,15 @@ C) Eski borç yükleme
 
 5) YEDEKLEME VE VERİ GÜVENLİĞİ
 -------------------------------
-- Ana yerel yedek klasörü:
-  Windows için: C:\Users\<kullanici>\AppData\Local\LetaYonetim\Yedekler
-- Ek mirror yedek klasörleri desteklenir:
-  - LETA_BACKUP_MIRROR
-- Google Drive senkron klasörüne ek yedek için:
-  - LETA_BACKUP_GDRIVE_DIR ortam değişkenini kurumun Google Drive klasörüne verin.
-  - Örnek: C:\Users\<kullanici>\Google Drive\My Drive\LetaYonetim_Yedek
-- Böylece cihaz arızasında veya lokal bozulmada buluttaki kopyadan geri dönüş kolaylaşır.
+- Sistemin ana çalışma mantığı LOKAL kayıt ve lokal yedeklemedir.
+- Veritabanı adı: leta_data.db
+- Otomatik kayıt klasörü işletim sistemine göre seçilir.
+  Windows örneği: C:\Users\<kullanici>\AppData\Local\LetaYonetim
+- Yerel yedek klasörü: ...\LetaYonetim\Yedekler
+- Ek mirror klasörleri desteklenir (LETA_BACKUP_MIRROR).
+- Bulut API entegrasyonu yoktur; ancak Google Drive masaüstü senkron klasörü gibi
+  bir klasör mirror hedefi yapılarak off-site kopya tutulabilir (LETA_BACKUP_GDRIVE_DIR).
+- Alternatif güvenli yöntem: Her gün sonunda Yedekler klasörünü USB diske de kopyalayın.
 
 6) KULLANICI DOSTU İPUÇLARI
 -----------------------------
@@ -70,3 +71,9 @@ C) Eski borç yükleme
   - Hangi ekranda oldu?
   - Hangi butona basıldı?
   - Mesaj metni neydi?
+
+
+8) YENİ BİLGİ DOSYASI
+---------------------
+- Lokal kayıt klasöründe YEDEK_GERI_YUKLEME_BILGISI.txt dosyası oluşur.
+- Bu dosya, yeni bilgisayara geçerken hangi klasörden neyi kopyalayacağınızı anlatır.

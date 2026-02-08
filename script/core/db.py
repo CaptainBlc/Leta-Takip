@@ -1,7 +1,9 @@
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path("leta.db")
+from .paths import db_path
+
+DB_PATH = str(db_path("leta_data.db"))
 
 DEFAULT_THERAPISTS = [
     "Pervin Hoca",
