@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+# Circular-import dayanıklılığı: yanlışlıkla modül içinde
+# `from pipeline import DataPipeline` çağrılırsa ImportError oluşmasın.
+DataPipeline = None  # type: ignore[assignment]
+
 import datetime
 import json
 import sqlite3
