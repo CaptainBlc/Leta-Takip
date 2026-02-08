@@ -948,7 +948,8 @@ class DataPipeline:
             )
             borclar = self.cur.fetchall()
             if not borclar:
-                borclar = []
+                self.conn.rollback()
+                return False
 
             for rid, kalan_borc, alinan_ucret, hizmet_bedeli, seans_id_raw, terapist in borclar:
                 if kalan_odeme <= 0:
@@ -991,31 +992,6 @@ class DataPipeline:
                     self.cur.execute("UPDATE seans_takvimi SET ucret_alindi=1 WHERE id=?", (seans_id,))
 
                 kalan_odeme -= odenecek
-
-            # Hiç borç yoksa veya tahsilatın bir kısmı açıkta kaldıysa avans (ileriye dönük ödeme) kaydı aç.
-            if kalan_odeme > 0:
-                rid = None
-                if self.table_exists("records"):
-                    self.cur.execute(
-                        """
-                        INSERT INTO records
-                        (tarih, saat, danisan_adi, terapist, hizmet_bedeli, alinan_ucret, kalan_borc, seans_alindi, notlar, olusturma_tarihi, seans_id)
-                        VALUES (?,?,?,?,?,?,?,?,?,?,?)
-                        """,
-                        (today, "", danisan, "", 0, kalan_odeme, -kalan_odeme, 0, f"Avans / İleriye Dönük Ödeme: {aciklama}", self._now(), None),
-                    )
-                    rid = int(self.cur.lastrowid or 0) or None
-
-                self._add_kasa(
-                    tarih=today,
-                    tip="giren",
-                    aciklama=f"Avans Ödeme: {danisan}",
-                    tutar=kalan_odeme,
-                    odeme_sekli="",
-                    gider_kategorisi="Tahsilat",
-                    record_id=rid,
-                    seans_id=None,
-                )
 
             self.conn.commit()
             return True
