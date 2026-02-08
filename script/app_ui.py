@@ -2319,6 +2319,12 @@ class App(ttk.Window):
     def _build_records_tab(self):
         top = ttk.Labelframe(self.tab_records, text="Yeni Seans Kaydı (Tarih, Danışan Adı, Terapist, Alınacak Ücret, Alınan Ücret, Kalan Borç)", padding=16, bootstyle="primary")
         top.pack(fill=X, pady=(0, 12))
+        # Farklı ekran genişliklerinde taşmayı azaltmak için kolonlar esnek
+        for col in (1, 3, 5):
+            try:
+                top.grid_columnconfigure(col, weight=1)
+            except Exception:
+                pass
 
         # Tabloya göre: Tarih, Danışan Adı, Terapist (saat otomatik atanır; formda yok)
         ttk.Label(top, text="Tarih:", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, padx=8, pady=8, sticky=W)
@@ -2405,15 +2411,15 @@ class App(ttk.Window):
         self.ent_alinan.grid(row=1, column=3, padx=8, pady=8, sticky=W)
 
         ttk.Label(top, text="NOTLAR:", font=("Segoe UI", 10, "bold")).grid(row=1, column=4, padx=8, pady=8, sticky=W)
-        self.ent_not = ttk.Entry(top, width=50, font=("Segoe UI", 10))
+        self.ent_not = ttk.Entry(top, width=36, font=("Segoe UI", 10))
         self.ent_not.grid(row=1, column=5, columnspan=2, padx=8, pady=8, sticky=W+E)
         
         info_label = ttk.Label(top, text="ℹ️ Alınan ücret otomatik dolar (istersen değiştirebilirsin). Seans kaydı haftalık programdan bağımsızdır.", 
                               font=("Segoe UI", 9), foreground="gray")
-        info_label.grid(row=2, column=0, columnspan=6, padx=8, pady=(0, 8), sticky=W)
+        info_label.grid(row=2, column=0, columnspan=7, padx=8, pady=(0, 8), sticky=W)
 
-        ttk.Button(top, text="KAYDET", bootstyle="success", command=self.kayit_ekle, width=20).grid(
-            row=0, column=6, rowspan=3, padx=12, pady=8, sticky="nsew"
+        ttk.Button(top, text="KAYDET", bootstyle="success", command=self.kayit_ekle, width=14).grid(
+            row=0, column=6, rowspan=1, padx=8, pady=8, sticky="ew"
         )
 
         # RAPORLAR (günlük / haftalık / toplam) - kasa için gereken özetler burada
@@ -2446,6 +2452,24 @@ class App(ttk.Window):
             foreground="#0066cc", background="#f0f8ff", relief="solid", borderwidth=1, padding=10
         )
 
+        # Seçim/action butonlarını tablonun üstüne al: küçük ekranlarda görünür kalsın
+        sec_toolbar = ttk.Frame(self.tab_records)
+        sec_toolbar.pack(fill=X, pady=(0, 4), padx=4)
+        ttk.Label(sec_toolbar, text="Seç:", font=("Segoe UI", 10, "bold")).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(sec_toolbar, text="Hepsini Seç", bootstyle="secondary-outline", command=self._seans_hepsini_sec).pack(side=LEFT, padx=4)
+        ttk.Button(sec_toolbar, text="Seçimi Kaldır", bootstyle="secondary-outline", command=self._seans_secimi_kaldir).pack(side=LEFT, padx=4)
+        ttk.Button(sec_toolbar, text="Seçilileri Sil", bootstyle="danger-outline", command=self.seclileri_sil).pack(side=LEFT, padx=4)
+
+        action_toolbar = ttk.Frame(self.tab_records)
+        action_toolbar.pack(fill=X, pady=(0, 8), padx=4)
+        ttk.Label(action_toolbar, text="Seçili Kayıt İşlemleri:", font=("Segoe UI", 10, "bold")).pack(side=LEFT, padx=(0, 10))
+
+        self.btn_odeme_ekle = ttk.Button(action_toolbar, text="💰 Ödeme Ekle", bootstyle="success", command=self.odeme_ekle, state="disabled")
+        self.btn_odeme_ekle.pack(side=LEFT, padx=5)
+
+        self.btn_kayit_sil = ttk.Button(action_toolbar, text="🗑️ Kaydı Sil", bootstyle="danger", command=self.kayit_sil, state="disabled")
+        self.btn_kayit_sil.pack(side=LEFT, padx=5)
+
         table = ttk.Frame(self.tab_records)
         table.pack(fill=BOTH, expand=True)
 
@@ -2472,28 +2496,6 @@ class App(ttk.Window):
         self.tree.tag_configure("tamam", background="#d4edda", foreground="#155724")
         
         # Notlar kolonu kaldırıldı; tıklama özelliği yok
-        
-        # ✅ SEÇ BUTONLARI: Hepsini seç, Seçimi kaldır, Seçilileri sil
-        sec_toolbar = ttk.Frame(self.tab_records)
-        sec_toolbar.pack(fill=X, pady=(0, 4), padx=4)
-        ttk.Label(sec_toolbar, text="Seç:", font=("Segoe UI", 10, "bold")).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(sec_toolbar, text="Hepsini Seç", bootstyle="secondary-outline", command=self._seans_hepsini_sec).pack(side=LEFT, padx=4)
-        ttk.Button(sec_toolbar, text="Seçimi Kaldır", bootstyle="secondary-outline", command=self._seans_secimi_kaldir).pack(side=LEFT, padx=4)
-        ttk.Button(sec_toolbar, text="Seçilileri Sil", bootstyle="danger-outline", command=self.seclileri_sil).pack(side=LEFT, padx=4)
-        
-        # ✅ HER ZAMAN GÖRÜNÜR ACTION BUTONLARI: Seçili kayıt için işlem butonları
-        action_toolbar = ttk.Frame(self.tab_records)
-        action_toolbar.pack(fill=X, pady=(0, 8), padx=4)
-        
-        ttk.Label(action_toolbar, text="Seçili Kayıt İşlemleri:", font=("Segoe UI", 10, "bold")).pack(side=LEFT, padx=(0, 10))
-        
-        self.btn_odeme_ekle = ttk.Button(action_toolbar, text="💰 Ödeme Ekle", bootstyle="success", 
-                                         command=self.odeme_ekle, state="disabled")
-        self.btn_odeme_ekle.pack(side=LEFT, padx=5)
-        
-        self.btn_kayit_sil = ttk.Button(action_toolbar, text="🗑️ Kaydı Sil", bootstyle="danger", 
-                                       command=self.kayit_sil, state="disabled")
-        self.btn_kayit_sil.pack(side=LEFT, padx=5)
         
         # Seçim değiştiğinde butonları aktif/pasif yap
         def _on_selection_change(event):
