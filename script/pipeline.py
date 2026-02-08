@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+# Circular-import dayanıklılığı: yanlışlıkla modül içinde
+# `from pipeline import DataPipeline` çağrılırsa ImportError oluşmasın.
+DataPipeline = None  # type: ignore[assignment]
+
 import datetime
+import json
 import sqlite3
+import unicodedata
 from typing import Any, Dict, List
 
 from core.logging_utils import log_exception
+from core.money import hesapla_personel_ucreti
 
 
 class DataPipeline:
@@ -33,6 +40,20 @@ class DataPipeline:
         except Exception:
             return 0.0
 
+    def _normalize_name(self, value: str) -> str:
+        v = " ".join((value or "").strip().upper().split())
+        if not v:
+            return ""
+        try:
+            v = "".join(
+                ch for ch in unicodedata.normalize("NFKD", v)
+                if not unicodedata.combining(ch)
+            )
+        except Exception:
+            pass
+        return v
+
+
     def table_exists(self, name: str) -> bool:
         try:
             self.cur.execute(
@@ -53,6 +74,27 @@ class DataPipeline:
     def get_log(self) -> str:
         return "\n".join(self._log_lines[-500:])
 
+    def _audit(self, action_type: str, entity_type: str, entity_id: int | None = None, details: dict | None = None) -> None:
+        if not self.table_exists("audit_trail"):
+            return
+        try:
+            self.cur.execute(
+                """
+                INSERT INTO audit_trail (action_type, entity_type, entity_id, kullanici_id, details, olusturma_tarihi)
+                VALUES (?,?,?,?,?,?)
+                """,
+                (
+                    action_type,
+                    entity_type,
+                    entity_id,
+                    self.kullanici_id,
+                    json.dumps(details or {}, ensure_ascii=False),
+                    self._now(),
+                ),
+            )
+        except Exception:
+            pass
+
     # ---------- events ----------
     def on(self, event: str, fn) -> None:
         self._listeners.setdefault(event, []).append(fn)
@@ -69,21 +111,22 @@ class DataPipeline:
         if not self.table_exists("danisanlar"):
             return None
         try:
-            self.cur.execute(
-                "SELECT id FROM danisanlar WHERE UPPER(TRIM(ad_soyad))=? LIMIT 1",
-                (danisan_upper,),
-            )
-            row = self.cur.fetchone()
-            if row and row[0]:
-                return int(row[0])
+            hedef = self._normalize_name(danisan_upper)
+            self.cur.execute("SELECT id, ad_soyad FROM danisanlar")
+            for row in self.cur.fetchall() or []:
+                rid = int(row[0]) if row and row[0] is not None else None
+                ad = self._normalize_name(str(row[1] or ""))
+                if rid and ad == hedef:
+                    return rid
 
+            kayit_adi = " ".join((danisan_upper or "").strip().split())
             self.cur.execute(
                 """
                 INSERT INTO danisanlar
                 (ad_soyad, telefon, email, veli_adi, veli_telefon, dogum_tarihi, adres, notlar, olusturma_tarihi, aktif, balance)
                 VALUES (?,?,?,?,?,?,?,?,?,?,?)
                 """,
-                (danisan_upper, "", "", "", "", "", "", "", self._now(), 1, 0),
+                (kayit_adi, "", "", "", "", "", "", "", self._now(), 1, 0),
             )
             return int(self.cur.lastrowid or 0) or None
         except Exception as e:
@@ -94,12 +137,13 @@ class DataPipeline:
         if not self.table_exists("danisanlar"):
             return None
         try:
-            self.cur.execute(
-                "SELECT id FROM danisanlar WHERE UPPER(TRIM(ad_soyad))=? LIMIT 1",
-                (danisan_upper,),
-            )
-            row = self.cur.fetchone()
-            return int(row[0]) if row and row[0] is not None else None
+            hedef = self._normalize_name(danisan_upper)
+            self.cur.execute("SELECT id, ad_soyad FROM danisanlar")
+            for row in self.cur.fetchall() or []:
+                rid = int(row[0]) if row and row[0] is not None else None
+                if rid and self._normalize_name(str(row[1] or "")) == hedef:
+                    return rid
+            return None
         except Exception:
             return None
 
@@ -170,7 +214,7 @@ class DataPipeline:
         skip_pricing_update: bool = False,
         ensure_danisan: bool = True,
     ) -> int | None:
-        danisan_upper = (danisan_adi or "").strip().upper()
+        danisan_clean = (danisan_adi or "").strip()
         terapist = (terapist or "").strip()
         tarih = (tarih or "").strip()
         saat = (saat or "").strip()
@@ -180,15 +224,15 @@ class DataPipeline:
         hb = self._safe_float(hizmet_bedeli)
         au = self._safe_float(alinan_ucret)
 
-        if not tarih or not danisan_upper or not terapist:
+        if not tarih or not danisan_clean or not terapist:
             return None
 
         try:
             self.conn.execute("BEGIN")
 
-            cocuk_id = self._get_cocuk_id(danisan_upper)
+            cocuk_id = self._get_cocuk_id(danisan_clean)
             if ensure_danisan and cocuk_id is None:
-                cocuk_id = self._ensure_danisan_exists(danisan_upper)
+                cocuk_id = self._ensure_danisan_exists(danisan_clean)
 
             if check_oda_cakisma and oda and self.check_oda_cakismasi(tarih, saat, oda):
                 self.conn.rollback()
@@ -204,12 +248,12 @@ class DataPipeline:
                     (tarih, saat, danisan_adi, terapist, oda, durum, notlar,
                      hizmet_bedeli, odeme_sekli, seans_alindi, ucret_alindi,
                      olusturma_tarihi, olusturan_kullanici_id, record_id)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
                     (
                         tarih,
                         saat,
-                        danisan_upper,
+                        danisan_clean,
                         terapist,
                         oda,
                         "planlandi",
@@ -233,7 +277,7 @@ class DataPipeline:
                     (tarih, saat, danisan_adi, terapist, hizmet_bedeli, alinan_ucret, kalan_borc, seans_alindi, notlar, olusturma_tarihi, seans_id)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?)
                     """,
-                    (tarih, saat, danisan_upper, terapist, hb, au, kalan, 0, notlar, self._now(), seans_id),
+                    (tarih, saat, danisan_clean, terapist, hb, au, kalan, 0, notlar, self._now(), seans_id),
                 )
                 record_id = int(self.cur.lastrowid or 0) or None
 
@@ -257,7 +301,7 @@ class DataPipeline:
                 self._add_kasa(
                     tarih,
                     "giren",
-                    f"Seans Tahsilat: {danisan_upper}/{terapist}",
+                    f"Seans Tahsilat: {danisan_clean}/{terapist}",
                     au,
                     "",
                     "Seans",
@@ -265,6 +309,30 @@ class DataPipeline:
                     seans_id,
                 )
 
+            # personel hakedişi oluştur
+            if seans_id and hb > 0 and self.table_exists("personel_ucret_takibi"):
+                try:
+                    personel_ucreti = self._safe_float(hesapla_personel_ucreti(terapist, hb))
+                    kural = "sabit" if terapist == "Arif Hoca" else ("yuzde100" if terapist == "Pervin Hoca" else "yuzde40")
+                    ucret_orani = 100.0 if terapist == "Pervin Hoca" else (0.0 if terapist == "Arif Hoca" else 40.0)
+                    self.cur.execute(
+                        """
+                        INSERT OR IGNORE INTO personel_ucret_takibi
+                        (personel_adi, seans_id, tarih, seans_ucreti, personel_ucreti, ucret_orani, odeme_durumu, aciklama, olusturma_tarihi, olusturan_kullanici_id)
+                        VALUES (?,?,?,?,?,?,?,?,?,?)
+                        """,
+                        (terapist, seans_id, tarih, hb, personel_ucreti, ucret_orani, "beklemede", f"Kural:{kural}", self._now(), self.kullanici_id),
+                    )
+                except Exception as e:
+                    log_exception("pipeline.personel_ucret_insert", e)
+
+            self._audit("seans_kayit", "seans_takvimi", seans_id, {
+                "record_id": record_id,
+                "danisan_adi": danisan_clean,
+                "terapist": terapist,
+                "hizmet_bedeli": hb,
+                "alinan_ucret": au,
+            })
             self.conn.commit()
             self._trigger_event("seans_created", {"seans_id": seans_id, "record_id": record_id})
             return seans_id
@@ -324,6 +392,7 @@ class DataPipeline:
                     (hb, kalan, 1 if seans_alindi else 0, rid),
                 )
 
+            self._audit("kayit_sil", "seans_takvimi", seans_id, {"record_id": record_id})
             self.conn.commit()
             return True
         except Exception as e:
@@ -354,6 +423,12 @@ class DataPipeline:
             if record_id is not None and self.table_exists("odeme_hareketleri"):
                 try:
                     self.cur.execute("DELETE FROM odeme_hareketleri WHERE record_id=?", (record_id,))
+                except Exception:
+                    pass
+
+            if self.table_exists("personel_ucret_takibi"):
+                try:
+                    self.cur.execute("DELETE FROM personel_ucret_takibi WHERE seans_id=?", (seans_id,))
                 except Exception:
                     pass
 
@@ -414,6 +489,7 @@ class DataPipeline:
             if seans_id and self.table_exists("seans_takvimi"):
                 self.cur.execute("UPDATE seans_takvimi SET ucret_alindi=1 WHERE id=?", (seans_id,))
 
+            self._audit("odeme_ekle", "records", record_id, {"tutar": tutar, "odeme_sekli": odeme_sekli, "seans_id": seans_id})
             self.conn.commit()
             return True
         except Exception as e:
@@ -430,7 +506,8 @@ class DataPipeline:
         else:
             tarih = str(tarih).strip()
 
-        danisan_upper = (danisan_adi or "").strip().upper()
+        danisan_clean = (danisan_adi or "").strip()
+        danisan_upper = danisan_clean.upper()
         tutar = self._safe_float(tutar)
         if not danisan_upper or tutar <= 0:
             return None
@@ -485,11 +562,95 @@ class DataPipeline:
             return False
         try:
             self.conn.execute("BEGIN")
+
+            self.cur.execute(
+                "SELECT COALESCE(tip,''), COALESCE(tutar,0), COALESCE(record_id,0), COALESCE(seans_id,0), COALESCE(aciklama,''), COALESCE(gider_kategorisi,'') FROM kasa_hareketleri WHERE id=?",
+                (hareket_id,),
+            )
+            row = self.cur.fetchone()
+            if not row:
+                self.conn.rollback()
+                return False
+
+            tip, tutar_raw, record_id_raw, seans_id_raw, aciklama, gider_kategorisi = row
+            tutar = self._safe_float(tutar_raw)
+            record_id = int(record_id_raw or 0) or None
+            seans_id = int(seans_id_raw or 0) or None
+
             self.cur.execute("DELETE FROM kasa_hareketleri WHERE id=?", (hareket_id,))
+
+            # Tahsilat silinirse records/seans tarafını geri senkronla
+            if tip == "giren" and record_id and self.table_exists("records"):
+                self.cur.execute(
+                    "SELECT COALESCE(hizmet_bedeli,0), COALESCE(alinan_ucret,0), COALESCE(seans_id,0) FROM records WHERE id=?",
+                    (record_id,),
+                )
+                rr = self.cur.fetchone()
+                if rr:
+                    hizmet = self._safe_float(rr[0])
+                    alinan_mevcut = self._safe_float(rr[1])
+                    rid_seans = int(rr[2] or 0) or None
+                    yeni_alinan = max(0.0, alinan_mevcut - tutar)
+                    yeni_kalan = max(0.0, hizmet - yeni_alinan)
+                    self.cur.execute(
+                        "UPDATE records SET alinan_ucret=?, kalan_borc=? WHERE id=?",
+                        (yeni_alinan, yeni_kalan, record_id),
+                    )
+
+                    if self.table_exists("seans_takvimi"):
+                        sid = seans_id or rid_seans
+                        if sid:
+                            self.cur.execute("UPDATE seans_takvimi SET ucret_alindi=? WHERE id=?", (1 if yeni_kalan <= 0 else 0, sid))
+
+                # Ödeme hareketlerinden bir eşleşeni düş (varsa)
+                if self.table_exists("odeme_hareketleri"):
+                    self.cur.execute(
+                        "SELECT id FROM odeme_hareketleri WHERE record_id=? AND ABS(COALESCE(tutar,0)-?) < 0.0001 ORDER BY id DESC LIMIT 1",
+                        (record_id, tutar),
+                    )
+                    od = self.cur.fetchone()
+                    if od:
+                        self.cur.execute("DELETE FROM odeme_hareketleri WHERE id=?", (int(od[0]),))
+
+            # Personel ücret ödemesi kasa'dan silinirse ücret takibine geri yansıt
+            if tip == "cikan" and self.table_exists("personel_ucret_takibi"):
+                personel_adi = ""
+                pfx = "Personel Ücret Ödemesi:"
+                if str(aciklama or "").startswith(pfx):
+                    personel_adi = str(aciklama or "")[len(pfx):].strip()
+                if personel_adi:
+                    sid = seans_id
+                    q = None
+                    params = None
+                    if sid:
+                        q = (
+                            "SELECT id FROM personel_ucret_takibi "
+                            "WHERE UPPER(TRIM(personel_adi))=UPPER(?) AND COALESCE(odeme_durumu,'')='odendi' "
+                            "AND ABS(COALESCE(personel_ucreti,0)-?)<0.0001 AND COALESCE(seans_id,0)=? "
+                            "ORDER BY id DESC LIMIT 1"
+                        )
+                        params = (personel_adi, tutar, sid)
+                    else:
+                        q = (
+                            "SELECT id FROM personel_ucret_takibi "
+                            "WHERE UPPER(TRIM(personel_adi))=UPPER(?) AND COALESCE(odeme_durumu,'')='odendi' "
+                            "AND ABS(COALESCE(personel_ucreti,0)-?)<0.0001 "
+                            "ORDER BY id DESC LIMIT 1"
+                        )
+                        params = (personel_adi, tutar)
+
+                    self.cur.execute(q, params)
+                    put = self.cur.fetchone()
+                    if put:
+                        self.cur.execute(
+                            "UPDATE personel_ucret_takibi SET odeme_durumu='beklemede', odeme_tarihi=NULL WHERE id=?",
+                            (int(put[0]),),
+                        )
+
             if self.table_exists("sistem_gunlugu"):
                 self.cur.execute(
                     "INSERT INTO sistem_gunlugu (tarih, olay, aciklama, olusturma_tarihi) VALUES (?,?,?,?)",
-                    (self._today(), "KASA_SIL", f"Kasa hareketi silindi: id={hareket_id}", self._now()),
+                    (self._today(), "KASA_SIL", f"Kasa hareketi silindi: id={hareket_id} tip={tip} tutar={tutar} record_id={record_id}", self._now()),
                 )
             self.conn.commit()
             return True
@@ -500,6 +661,10 @@ class DataPipeline:
                 pass
             log_exception("pipeline.kasa_hareket_sil", e)
             return False
+
+    # app_ui bazı yerlerde bu ismi çağırıyor (geriye dönük uyumluluk)
+    def kasa_hareketi_sil(self, hareket_id: int) -> bool:
+        return self.kasa_hareket_sil(hareket_id)
 
     def personel_avans_ver(self, personel_adi: str, tutar: float, tarih: str | None = None, aciklama: str = "Personel Avans") -> bool:
         if tarih is None or str(tarih).strip() == "":
@@ -553,7 +718,7 @@ class DataPipeline:
             "operasyonel": {"bugun_toplam_seans": 0, "bugun_beklenen_seans": 0, "bugun_tamamlanan_seans": 0},
             "finansal": {"bugun_kasa_giren": 0.0, "beklenen_toplam_alacak": 0.0, "toplam_borc": 0.0},
             "kritik": [],
-            "devamsizlik": [],
+            "borclular": [],
         }
         today = self._today()
 
@@ -586,16 +751,108 @@ class DataPipeline:
             except Exception:
                 pass
 
+
+        if self.table_exists("records"):
+            try:
+                self.cur.execute(
+                    """
+                    SELECT UPPER(TRIM(danisan_adi)) AS danisan_adi,
+                           COALESCE(SUM(COALESCE(kalan_borc,0)),0) AS kalan_borc,
+                           COUNT(*) AS acik_kayit
+                    FROM records
+                    WHERE COALESCE(kalan_borc,0) > 0
+                    GROUP BY UPPER(TRIM(danisan_adi))
+                    ORDER BY kalan_borc DESC
+                    LIMIT 10
+                    """
+                )
+                out["borclular"] = [
+                    {
+                        "danisan_adi": r[0] or "",
+                        "kalan_borc": self._safe_float(r[1]),
+                        "acik_kayit": int(r[2] or 0),
+                    }
+                    for r in (self.cur.fetchall() or [])
+                ]
+            except Exception as e:
+                log_exception("get_dashboard_data_borclular", e)
+
         return out
 
     def get_smart_defaults(self, danisan_adi: str = "", terapist_adi: str = "", tarih: str = "", saat: str = "") -> dict:
-        # UI burada "price" bekliyor (KeyError fix)
-        return {
+        out = {
             "price": 0.0,
             "hizmet_bedeli": None,
             "odeme_sekli": "",
             "oda": "",
         }
+        danisan = self._normalize_name(danisan_adi)
+        terapist = " ".join((terapist_adi or "").strip().split())
+        if not danisan or not terapist:
+            return out
+        try:
+            ogrenci_id = self._get_cocuk_id(danisan)
+            if ogrenci_id and self.table_exists("pricing_policy"):
+                self.cur.execute(
+                    """
+                    SELECT COALESCE(price,0)
+                    FROM pricing_policy
+                    WHERE student_id=? AND TRIM(COALESCE(teacher_name,''))=?
+                    ORDER BY updated_at DESC, created_at DESC
+                    LIMIT 1
+                    """,
+                    (ogrenci_id, terapist),
+                )
+                row = self.cur.fetchone()
+                if row and self._safe_float(row[0]) > 0:
+                    out["price"] = self._safe_float(row[0])
+                    out["hizmet_bedeli"] = out["price"]
+                    return out
+
+            if ogrenci_id and self.table_exists("ogrenci_personel_fiyatlandirma"):
+                self.cur.execute(
+                    """
+                    SELECT COALESCE(seans_ucreti,0)
+                    FROM ogrenci_personel_fiyatlandirma
+                    WHERE ogrenci_id=? AND TRIM(COALESCE(personel_adi,''))=? AND COALESCE(aktif,1)=1
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    (ogrenci_id, terapist),
+                )
+                row = self.cur.fetchone()
+                if row and self._safe_float(row[0]) > 0:
+                    out["price"] = self._safe_float(row[0])
+                    out["hizmet_bedeli"] = out["price"]
+                    return out
+
+            if self.table_exists("records"):
+                self.cur.execute(
+                    """
+                    SELECT AVG(COALESCE(hizmet_bedeli,0))
+                    FROM records
+                    WHERE UPPER(TRIM(danisan_adi))=? AND TRIM(COALESCE(terapist,''))=?
+                      AND COALESCE(hizmet_bedeli,0)>0
+                    """,
+                    (danisan, terapist),
+                )
+                avg_row = self.cur.fetchone()
+                avg_price = self._safe_float((avg_row or [0])[0])
+                if avg_price > 0:
+                    out["price"] = avg_price
+                    out["hizmet_bedeli"] = avg_price
+            return out
+        except Exception as e:
+            log_exception("pipeline.get_smart_defaults", e)
+            return out
+
+    def get_price_for_danisan_terapist(self, danisan_adi: str, terapist_adi: str) -> float:
+        """UI compatibility: danışan+terapist için otomatik hizmet bedelini döndürür."""
+        try:
+            defaults = self.get_smart_defaults(danisan_adi=danisan_adi, terapist_adi=terapist_adi, tarih=self._today(), saat="09:00")
+            return self._safe_float(defaults.get("price", 0))
+        except Exception:
+            return 0.0
 
     def validate_sync(self) -> dict:
         # UI burada result["stats"]["seans_takvimi_count"] gibi anahtarlar bekliyor (KeyError fix)
@@ -632,7 +889,8 @@ class DataPipeline:
         if tutar <= 0 or not personel_u:
             return False
 
-        tip = "cikan" if str(islem_turu).lower().startswith("g") else "giren"
+        islem = str(islem_turu or "").strip().lower()
+        tip = "cikan" if islem in {"gider", "avans", "maaş ödemesi", "maas odemesi", "prim", "yol/yemek", "yol", "yemek"} else "giren"
         try:
             self.conn.execute("BEGIN")
             self._add_kasa(
@@ -650,6 +908,7 @@ class DataPipeline:
                     "INSERT INTO sistem_gunlugu (tarih, olay, aciklama, olusturma_tarihi) VALUES (?,?,?,?)",
                     (self._today(), "PERSONEL_ISLEM", f"{personel_u} {tip} {tutar} | {aciklama}", self._now()),
                 )
+            self._audit("personel_islem", "kasa_hareketleri", None, {"personel": personel_u, "tip": tip, "tutar": tutar, "islem_turu": islem_turu})
             self.conn.commit()
             return True
         except Exception as e:
@@ -658,6 +917,174 @@ class DataPipeline:
             except Exception:
                 pass
             log_exception("pipeline.personel_harici_islem", e)
+            return False
+
+    def get_personel_cuzdan(self, personel_adi: str) -> dict:
+        """Personel için bekleyen/ödenen hakediş özetini döndürür."""
+        personel = (personel_adi or "").strip()
+        out = {
+            "beklemede_toplam": 0.0,
+            "odendi_toplam": 0.0,
+            "toplam_hak_edis": 0.0,
+        }
+        if not personel or not self.table_exists("personel_ucret_takibi"):
+            return out
+        try:
+            self.cur.execute(
+                """
+                SELECT
+                    COALESCE(SUM(CASE WHEN COALESCE(odeme_durumu,'')='beklemede' THEN COALESCE(personel_ucreti,0) ELSE 0 END),0) AS beklemede,
+                    COALESCE(SUM(CASE WHEN COALESCE(odeme_durumu,'')='odendi' THEN COALESCE(personel_ucreti,0) ELSE 0 END),0) AS odendi,
+                    COALESCE(SUM(COALESCE(personel_ucreti,0)),0) AS toplam
+                FROM personel_ucret_takibi
+                WHERE TRIM(personel_adi)=?
+                """,
+                (personel,),
+            )
+            row = self.cur.fetchone() or (0, 0, 0)
+            out["beklemede_toplam"] = self._safe_float(row[0])
+            out["odendi_toplam"] = self._safe_float(row[1])
+            out["toplam_hak_edis"] = self._safe_float(row[2])
+            return out
+        except Exception as e:
+            log_exception("pipeline.get_personel_cuzdan", e)
+            return out
+
+    def personel_ucret_odeme_kasa_entegrasyonu(self, personel_adi: str, tutar: float, ucret_takibi_id: int | None = None) -> bool:
+        """Personel ücret ödemesini kayda geçirir: put.odendi + kasa(cikan)."""
+        try:
+            self.conn.execute("BEGIN")
+
+            personel = (personel_adi or "").strip().upper()
+            tutar_val = self._safe_float(tutar)
+            seans_id = None
+
+            if ucret_takibi_id and self.table_exists("personel_ucret_takibi"):
+                self.cur.execute(
+                    "SELECT personel_adi, COALESCE(personel_ucreti,0), COALESCE(odeme_durumu,'beklemede'), COALESCE(seans_id,0) FROM personel_ucret_takibi WHERE id=?",
+                    (ucret_takibi_id,),
+                )
+                row = self.cur.fetchone()
+                if not row:
+                    self.conn.rollback()
+                    return False
+                personel = (row[0] or personel).strip().upper()
+                tutar_val = self._safe_float(row[1] if row[1] is not None else tutar_val)
+                seans_id = int(row[3] or 0) or None
+                self.cur.execute(
+                    "UPDATE personel_ucret_takibi SET odeme_durumu='odendi', odeme_tarihi=? WHERE id=?",
+                    (self._today(), ucret_takibi_id),
+                )
+
+            if not personel or tutar_val <= 0:
+                self.conn.rollback()
+                return False
+
+            self._add_kasa(
+                tarih=self._today(),
+                tip="cikan",
+                aciklama=f"Personel Ücret Ödemesi: {personel}",
+                tutar=tutar_val,
+                odeme_sekli="",
+                gider_kategorisi="Personel",
+                record_id=None,
+                seans_id=seans_id,
+            )
+
+            if self.table_exists("sistem_gunlugu"):
+                self.cur.execute(
+                    "INSERT INTO sistem_gunlugu (tarih, olay, aciklama, olusturma_tarihi) VALUES (?,?,?,?)",
+                    (self._today(), "PERSONEL_UCRET_ODEME", f"personel={personel} tutar={tutar_val} ucret_takibi_id={ucret_takibi_id}", self._now()),
+                )
+
+            self._audit("personel_ucret_odeme", "personel_ucret_takibi", ucret_takibi_id, {"personel": personel, "tutar": tutar_val})
+            self.conn.commit()
+            return True
+        except Exception as e:
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
+            log_exception("pipeline.personel_ucret_odeme_kasa_entegrasyonu", e)
+            return False
+
+
+    def toplu_odeme_al(self, danisan_adi: str, tutar: float, aciklama: str = "Toplu Ödeme / Peşinat") -> bool:
+        """Danışanın açık borçlarına toplu tahsilat uygular ve kasa/ödeme hareketi üretir."""
+        danisan = (danisan_adi or "").strip().upper()
+        tutar = self._safe_float(tutar)
+        if not danisan or tutar <= 0 or not self.table_exists("records"):
+            return False
+
+        try:
+            self.conn.execute("BEGIN")
+            kalan_odeme = tutar
+            today = self._today()
+
+            self.cur.execute(
+                """
+                SELECT id, COALESCE(kalan_borc,0), COALESCE(alinan_ucret,0), COALESCE(hizmet_bedeli,0), COALESCE(seans_id,0), terapist
+                FROM records
+                WHERE UPPER(TRIM(danisan_adi))=? AND COALESCE(kalan_borc,0)>0
+                ORDER BY tarih ASC, id ASC
+                """,
+                (danisan,),
+            )
+            borclar = self.cur.fetchall()
+            if not borclar:
+                self.conn.rollback()
+                return False
+
+            for rid, kalan_borc, alinan_ucret, hizmet_bedeli, seans_id_raw, terapist in borclar:
+                if kalan_odeme <= 0:
+                    break
+                kalan_borc = self._safe_float(kalan_borc)
+                if kalan_borc <= 0:
+                    continue
+                odenecek = min(kalan_odeme, kalan_borc)
+                yeni_alinan = self._safe_float(alinan_ucret) + odenecek
+                yeni_kalan = max(0.0, self._safe_float(hizmet_bedeli) - yeni_alinan)
+
+                self.cur.execute(
+                    "UPDATE records SET alinan_ucret=?, kalan_borc=? WHERE id=?",
+                    (yeni_alinan, yeni_kalan, rid),
+                )
+
+                if self.table_exists("odeme_hareketleri"):
+                    self.cur.execute(
+                        """
+                        INSERT INTO odeme_hareketleri
+                        (record_id, tutar, tarih, odeme_sekli, aciklama, olusturma_tarihi, olusturan_kullanici_id)
+                        VALUES (?,?,?,?,?,?,?)
+                        """,
+                        (rid, odenecek, today, "", aciklama, self._now(), self.kullanici_id),
+                    )
+
+                seans_id = int(seans_id_raw or 0) or None
+                self._add_kasa(
+                    tarih=today,
+                    tip="giren",
+                    aciklama=f"Toplu Ödeme: {danisan}/{(terapist or '').strip()}",
+                    tutar=odenecek,
+                    odeme_sekli="",
+                    gider_kategorisi="Tahsilat",
+                    record_id=int(rid),
+                    seans_id=seans_id,
+                )
+
+                if seans_id and self.table_exists("seans_takvimi") and yeni_kalan <= 0:
+                    self.cur.execute("UPDATE seans_takvimi SET ucret_alindi=1 WHERE id=?", (seans_id,))
+
+                kalan_odeme -= odenecek
+
+            self.conn.commit()
+            return True
+        except Exception as e:
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
+            log_exception("pipeline.toplu_odeme_al", e)
             return False
 
     # ---------- API: Danışan ----------
@@ -670,4 +1097,20 @@ class DataPipeline:
             return True
         except Exception as e:
             log_exception("pipeline.danisan_durum_guncelle", e)
+            return False
+
+    def oda_durum_guncelle(self, oda_id: int, aktif: bool) -> bool:
+        if not self.table_exists("odalar"):
+            return False
+        try:
+            self.cur.execute("UPDATE odalar SET aktif=? WHERE id=?", (1 if aktif else 0, oda_id))
+            if self.table_exists("sistem_gunlugu"):
+                self.cur.execute(
+                    "INSERT INTO sistem_gunlugu (tarih, olay, aciklama, olusturma_tarihi) VALUES (?,?,?,?)",
+                    (self._today(), "ODA_DURUM", f"oda_id={oda_id} aktif={1 if aktif else 0}", self._now()),
+                )
+            self.conn.commit()
+            return True
+        except Exception as e:
+            log_exception("pipeline.oda_durum_guncelle", e)
             return False

@@ -8,6 +8,7 @@ from pipeline import DataPipeline
 import sys
 import traceback
 import pandas as pd
+import sqlite3
 from core.logging_utils import log_exception
 from core.platform import configure_macos_scaling
 from core.window import center_window, center_window_smart, maximize_window
@@ -25,6 +26,7 @@ class App(ttk.Window):
         self.resizable(False, False)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.report_callback_exception = self._tk_report_callback_exception
+        self.bind_class("Toplevel", "<Map>", self._auto_adjust_mapped_toplevel, add="+")
         # Logo (varsa) - GC olmaması için referans tutuyoruz
         self._logo_small = load_logo_photo(28, 28)
         self._logo_big = load_logo_photo(80, 80)
@@ -35,7 +37,7 @@ class App(ttk.Window):
 
         # giriş yapan kullanıcı
         self.kullanici = None  # (id, kullanici_adi, ad_soyad, yetki, terapist_adi)
-        self.kullanici_yetki = "normal"
+        self.kullanici_yetki = "kurum_muduru"
         self.kullanici_terapist = None
 
         self._vcmd_money = (self.register(self._validate_money), "%P")
@@ -60,6 +62,50 @@ class App(ttk.Window):
     
     def _on_close(self):
         self.destroy()
+
+    def _fit_window_to_screen(self, win):
+        """Pencereyi ekran sınırlarına sığdır ve ortala (tüm popup'lar görünür kalsın)."""
+        try:
+            win.update_idletasks()
+            sw = max(1, int(win.winfo_screenwidth() or 1))
+            sh = max(1, int(win.winfo_screenheight() or 1))
+
+            ww = max(320, int(max(win.winfo_width() or 0, win.winfo_reqwidth() or 0, 320)))
+            wh = max(220, int(max(win.winfo_height() or 0, win.winfo_reqheight() or 0, 220)))
+
+            max_w = max(320, sw - 60)
+            max_h = max(220, sh - 100)
+            ww = min(ww, max_w)
+            wh = min(wh, max_h)
+
+            x = max(0, (sw - ww) // 2)
+            y = max(0, (sh - wh) // 2)
+            win.geometry(f"{ww}x{wh}+{x}+{y}")
+            try:
+                win.minsize(min(ww, 420), min(wh, 260))
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _auto_adjust_mapped_toplevel(self, event=None):
+        """Açılan popup'ları otomatik ekrana sığdırır."""
+        try:
+            w = event.widget if event is not None else None
+            if not isinstance(w, tk.Toplevel):
+                return
+            if w is self:
+                return
+            if getattr(w, "_auto_screen_fitted", False):
+                return
+            try:
+                w.resizable(True, True)
+            except Exception:
+                pass
+            self._fit_window_to_screen(w)
+            w._auto_screen_fitted = True
+        except Exception:
+            pass
     def popup_personel_avans(self, **kwargs):
         """Personel Avans/Ekstra Ödeme Penceresi"""
         win = ttk.Toplevel(self)
@@ -129,62 +175,62 @@ class App(ttk.Window):
 
         ttk.Button(win, text="KASADAN ÖDE", bootstyle="danger", command=kaydet).pack(pady=15)
     def _kasa_secili_sil(self, parent):
-   
-    # pipeline var mı garanti et
-     pipeline = getattr(self, "pipeline", None)
-     if pipeline is None:
-        messagebox.showerror("Hata", "Pipeline bulunamadı (self.pipeline yok).")
-        return
+        """Kasa defterinden seçili satırı güvenli şekilde sil."""
+        tree = getattr(parent, "_tree_kasa", None) or getattr(self, "_tree_kasa", None)
+        if not tree:
+            messagebox.showerror("Hata", "Kasa tablosu bulunamadı.")
+            return
 
-     tree = getattr(parent, "_tree_kasa", None)
-     if tree is None:
-        # Bazı sürümlerde tree parent üzerinde değil, self üzerinde tutuluyor olabilir
-        tree = getattr(self, "_tree_kasa", None)
+        sel = tree.selection()
+        if not sel:
+            messagebox.showwarning("Uyarı", "Silmek için bir satır seç.")
+            return
 
-     if not tree:
-        messagebox.showerror("Hata", "Kasa tablosu bulunamadı.")
-        return
+        values = tree.item(sel[0], "values") or []
+        if not values:
+            messagebox.showerror("Hata", "Seçili satır okunamadı.")
+            return
 
-     sel = tree.selection()
-     if not sel:
-        messagebox.showwarning("Uyarı", "Silmek için bir satır seç.")
-        return
+        try:
+            hareket_id = int(values[0])
+        except Exception:
+            messagebox.showerror("Hata", f"Geçersiz ID: {values[0]!r}")
+            return
 
-     values = tree.item(sel[0], "values") or []
-     if not values:
-        messagebox.showerror("Hata", "Seçili satır okunamadı.")
-        return
+        if not messagebox.askyesno("Onay", f"Kasa hareketi silinsin mi?\nID: {hareket_id}"):
+            return
 
-     try:
-        hareket_id = int(values[0])
-     except Exception:
-        messagebox.showerror("Hata", f"Geçersiz ID: {values[0]!r}")
-        return
+        conn = None
+        try:
+            conn = self.veritabani_baglan()
+            kullanici_id = self.kullanici[0] if self.kullanici else None
+            pipeline = DataPipeline(conn, kullanici_id)
+            ok = bool(pipeline.kasa_hareketi_sil(hareket_id))
+            conn.close()
 
-     if not messagebox.askyesno("Onay", f"Kasa hareketi silinsin mi?\nID: {hareket_id}"):
-        return
+            if not ok:
+                messagebox.showerror("Hata", "Silme başarısız. Kayıt bulunamadı veya silinemedi.")
+                return
 
-     ok = False
-     if hasattr(pipeline, "kasa_hareket_sil"):
-        ok = bool(pipeline.kasa_hareket_sil(hareket_id))
-     elif hasattr(pipeline, "kasa_hareketi_sil"):
-        ok = bool(pipeline.kasa_hareketi_sil(hareket_id))
+            try:
+                if hasattr(self, "_kasa_rapor_yukle"):
+                    self._kasa_rapor_yukle(parent)
+                elif hasattr(self, "kasa_rapor_yukle"):
+                    self.kasa_rapor_yukle(parent)
+            except Exception:
+                pass
 
-     if not ok:
-        messagebox.showerror("Hata", "Silme başarısız. Log'a bak.")
-        return
-
-    # tabloyu yenile: senin projede yenileme fonksiyonu farklı isimde olabilir
-     try:
-        if hasattr(self, "_kasa_rapor_yukle"):
-            self._kasa_rapor_yukle(parent)
-        elif hasattr(self, "kasa_rapor_yukle"):
-            self.kasa_rapor_yukle(parent)
-     except Exception:
-        pass
-
-     messagebox.showinfo("OK", "Kasa hareketi silindi.")
-
+            self._refresh_open_reports()
+            messagebox.showinfo("OK", "Kasa hareketi silindi.")
+        except Exception as e:
+            messagebox.showerror("Hata", f"Silme başarısız:\n{e}")
+            log_exception("_kasa_secili_sil", e)
+        finally:
+            try:
+                if conn is not None:
+                    conn.close()
+            except Exception:
+                pass
 
 
     def _kasa_popup_odeme_ekle(self, parent):
@@ -303,7 +349,7 @@ class App(ttk.Window):
         try:
             # kullanıcıyı temizle
             self.kullanici = None
-            self.kullanici_yetki = "normal"
+            self.kullanici_yetki = "kurum_muduru"
             self.kullanici_terapist = None
 
             # tüm mevcut UI'ı kaldır
@@ -526,7 +572,7 @@ class App(ttk.Window):
         user_row = None
         try:
             conn = self.veritabani_baglan()
-            self.pipeline = DataPipeline(conn, self.kullanici[0])
+            self.pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
             cur = conn.cursor()
             cur.execute(
                 "SELECT id, username, full_name, COALESCE(access_role, role, 'egitim_gorevlisi'), therapist_name, password_hash FROM users WHERE is_active=1 AND username=?",
@@ -535,7 +581,7 @@ class App(ttk.Window):
             row = cur.fetchone()
             if row and (row[5] or "") == hash_pass(p):
                 ok = True
-                user_row = (row[0], row[1], row[2] or row[1], row[3] or "egitim_gorevlisi", row[4])
+                user_row = (row[0], row[1], row[2] or row[1], "kurum_muduru", row[4])
                 try:
                     cur.execute(
                         "UPDATE users SET last_login=? WHERE id=?",
@@ -554,7 +600,7 @@ class App(ttk.Window):
             return
 
         self.kullanici = user_row
-        self.kullanici_yetki = (user_row[3] if user_row else "normal") if ok else "normal"
+        self.kullanici_yetki = "kurum_muduru"
         self.kullanici_terapist = (user_row[4] if user_row else None)
 
         # Login başarılı -> ana UI (hata olursa kullanıcıya göster + logla)
@@ -1634,7 +1680,7 @@ class App(ttk.Window):
         win = ttk.Toplevel(self)
         win.title(title)
         win.transient(self)
-        center_window_smart(win, 1200, 720)
+        center_window_smart(win, 1250, 760)
         maximize_window(win)
         self._brand_window(win)
         self._style_table_strong()
@@ -1644,170 +1690,236 @@ class App(ttk.Window):
         ttk.Label(top, text=title.upper(), font=("Segoe UI", 14, "bold"), bootstyle="primary").pack(side=LEFT)
         ttk.Label(top, text=f"Tarih: {bas}  →  {bit}", foreground="gray").pack(side=LEFT, padx=10)
 
-        # özet - DETAYLI BİLGİLER
         s = self._range_summary(bas, bit, None if self.kullanici_yetki == "kurum_muduru" else (self.kullanici_terapist or None))
         net = float(s["kasa_giren"]) - float(s["kasa_cikan"])
 
         o = ttk.Labelframe(win, text="📊 DETAYLI ÖZET BİLGİLERİ", padding=12, bootstyle="info")
-        o.pack(fill=X, padx=10, pady=(0, 10))
-        
-        # İlk satır - Seans ve Ücret Bilgileri
-        row1 = ttk.Frame(o)
-        row1.pack(fill=X, pady=(0, 8))
-        ttk.Label(row1, text=f"📅 Toplam Seans Sayısı: {s['seans_sayisi']}", font=("Segoe UI", 10, "bold"), bootstyle="primary").pack(side=LEFT, padx=8)
-        ttk.Label(row1, text=f"💰 Seans Ücreti (Toplam): {format_money(s['bedel_toplam'])}", font=("Segoe UI", 10, "bold"), bootstyle="success").pack(side=LEFT, padx=8)
-        ttk.Label(row1, text=f"✅ Alınan Ödeme: {format_money(s['alinan_toplam'])}", font=("Segoe UI", 10, "bold"), bootstyle="warning").pack(side=LEFT, padx=8)
-        ttk.Label(row1, text=f"⚠️ Kalan Borç: {format_money(s['kalan_toplam'])}", font=("Segoe UI", 10, "bold"), bootstyle="danger").pack(side=LEFT, padx=8)
-        
-        # İkinci satır - Kasa Bilgileri
-        row2 = ttk.Frame(o)
-        row2.pack(fill=X, pady=(4, 0))
-        ttk.Label(row2, text=f"📥 Kasa Giren: {format_money(s['kasa_giren'])}", font=("Segoe UI", 10)).pack(side=LEFT, padx=8)
-        ttk.Label(row2, text=f"📤 Kasa Çıkan: {format_money(s['kasa_cikan'])}", font=("Segoe UI", 10)).pack(side=LEFT, padx=8)
-        ttk.Label(row2, text=f"💵 Net Kasa: {format_money(net)}", font=("Segoe UI", 11, "bold"), bootstyle="success").pack(side=LEFT, padx=8)
-        
-        # Açıklama
-        aciklama = ttk.Label(
-            o, 
-            text=f"💡 Açıklama: {s['seans_sayisi']} seans için toplam {format_money(s['bedel_toplam'])} TL ücret belirlenmiş, {format_money(s['alinan_toplam'])} TL ödeme alınmış, {format_money(s['kalan_toplam'])} TL borç kalmıştır.",
-            font=("Segoe UI", 9),
-            foreground="gray",
-            wraplength=1100
-        )
-        aciklama.pack(fill=X, padx=8, pady=(8, 0))
+        o.pack(fill=X, padx=10, pady=(0, 8))
+        ttk.Label(o, text=f"📅 Seans: {s['seans_sayisi']}   💰 Ücret: {format_money(s['bedel_toplam'])}   ✅ Alınan: {format_money(s['alinan_toplam'])}   ⚠️ Borç: {format_money(s['kalan_toplam'])}", font=("Segoe UI", 10, "bold")).pack(anchor=W)
+        ttk.Label(o, text=f"📥 Kasa Giren: {format_money(s['kasa_giren'])}   📤 Kasa Çıkan: {format_money(s['kasa_cikan'])}   💵 Net: {format_money(net)}", font=("Segoe UI", 10)).pack(anchor=W, pady=(4, 0))
 
-        # liste (records) - DETAYLI BİLGİLER
-        frame = ttk.Frame(win, padding=10)
-        frame.pack(fill=BOTH, expand=True)
-        cols = ("Tarih", "Saat", "Danışan", "Terapist", "Seans Ücreti", "Alınan Ödeme", "Kalan Borç", "Not")
-        tree = ttk.Treeview(frame, columns=cols, show="headings", style="Strong.Treeview")
-        for c in cols:
-            tree.heading(c, text=c)
-            if c == "Tarih":
-                tree.column(c, width=100)
-            elif c == "Saat":
-                tree.column(c, width=70)
-            elif c == "Danışan":
-                tree.column(c, width=200)
-            elif c == "Terapist":
-                tree.column(c, width=140)
-            elif c in ("Seans Ücreti", "Alınan Ödeme", "Kalan Borç"):
-                tree.column(c, width=120, anchor="e")
-            elif c == "Not":
-                tree.column(c, width=300)
-            else:
-                tree.column(c, width=120)
-        tree.pack(side=LEFT, fill=BOTH, expand=True)
-        sb = ttk.Scrollbar(frame, orient=VERTICAL, command=tree.yview)
-        tree.configure(yscroll=sb.set)
-        sb.pack(side=RIGHT, fill=Y)
-        
-        # Tag'leri yapılandır (renkli görüntüleme)
-        tree.tag_configure("borclu", background="#f8d7da", foreground="#721c24")
-        tree.tag_configure("borclu_even", background="#f5c6cb", foreground="#721c24")
-        tree.tag_configure("tamam", background="#d4edda", foreground="#155724")
-        tree.tag_configure("tamam_even", background="#c3e6cb", foreground="#155724")
-        tree.tag_configure("even", background="#f8f9fa")
-        tree.tag_configure("odd", background="#ffffff")
-        
-        self._apply_stripes(tree)
+        mid = ttk.Frame(win, padding=10)
+        mid.pack(fill=BOTH, expand=True)
 
-        def _load():
-            for iid in tree.get_children():
-                tree.delete(iid)
+        nb = ttk.Notebook(mid, bootstyle="info")
+        nb.pack(fill=BOTH, expand=True)
+        tab_records = ttk.Frame(nb, padding=6)
+        tab_kasa = ttk.Frame(nb, padding=6)
+        nb.add(tab_records, text="Seans / Records")
+        nb.add(tab_kasa, text="Kasa Defteri")
+
+        cols_r = ("SeansID", "Tarih", "Saat", "Danışan", "Terapist", "Seans Ücreti", "Alınan Ödeme", "Kalan Borç", "Not")
+        tree_r = ttk.Treeview(tab_records, columns=cols_r, show="headings", style="Strong.Treeview", selectmode="extended")
+        for c in cols_r:
+            tree_r.heading(c, text=c)
+        tree_r.column("SeansID", width=0, stretch=False)
+        tree_r.column("Tarih", width=95, anchor="center")
+        tree_r.column("Saat", width=65, anchor="center")
+        tree_r.column("Danışan", width=190)
+        tree_r.column("Terapist", width=130)
+        tree_r.column("Seans Ücreti", width=115, anchor="e")
+        tree_r.column("Alınan Ödeme", width=115, anchor="e")
+        tree_r.column("Kalan Borç", width=115, anchor="e")
+        tree_r.column("Not", width=280)
+        tree_r.pack(side=LEFT, fill=BOTH, expand=True)
+        sb_r = ttk.Scrollbar(tab_records, orient=VERTICAL, command=tree_r.yview)
+        tree_r.configure(yscroll=sb_r.set)
+        sb_r.pack(side=RIGHT, fill=Y)
+
+        cols_k = ("KasaID", "Tarih", "Tip", "Açıklama", "Tutar", "Ödeme Şekli", "Kategori")
+        tree_k = ttk.Treeview(tab_kasa, columns=cols_k, show="headings", style="Strong.Treeview", selectmode="extended")
+        for c in cols_k:
+            tree_k.heading(c, text=c)
+        tree_k.column("KasaID", width=0, stretch=False)
+        tree_k.column("Tarih", width=95, anchor="center")
+        tree_k.column("Tip", width=70, anchor="center")
+        tree_k.column("Açıklama", width=360)
+        tree_k.column("Tutar", width=130, anchor="e")
+        tree_k.column("Ödeme Şekli", width=140, anchor="center")
+        tree_k.column("Kategori", width=120, anchor="center")
+        tree_k.pack(side=LEFT, fill=BOTH, expand=True)
+        sb_k = ttk.Scrollbar(tab_kasa, orient=VERTICAL, command=tree_k.yview)
+        tree_k.configure(yscroll=sb_k.set)
+        sb_k.pack(side=RIGHT, fill=Y)
+
+        def _load_records():
+            for iid in tree_r.get_children():
+                tree_r.delete(iid)
+            conn = None
             try:
                 conn = self.veritabani_baglan()
                 if self.kullanici_yetki == "kurum_muduru" or not self.kullanici_terapist:
                     df = pd.read_sql_query(
                         """
-                        SELECT 
-                            r.tarih,
-                            COALESCE(r.saat, st.saat, '') AS saat,
-                            r.danisan_adi,
-                            r.terapist,
-                            r.hizmet_bedeli AS seans_ucreti,
-                            r.alinan_ucret AS alinan_odeme,
-                            r.kalan_borc AS kalan_borc,
+                        SELECT
+                            st.id AS seans_id,
+                            st.tarih,
+                            COALESCE(st.saat, '') AS saat,
+                            COALESCE(r.danisan_adi, st.danisan_adi, '') AS danisan_adi,
+                            COALESCE(r.terapist, st.terapist, '') AS terapist,
+                            COALESCE(r.hizmet_bedeli, 0) AS seans_ucreti,
+                            COALESCE(r.alinan_ucret, 0) AS alinan_odeme,
+                            COALESCE(r.kalan_borc, 0) AS kalan_borc,
                             COALESCE(r.notlar, st.notlar, '') AS notlar
-                        FROM records r
-                        LEFT JOIN seans_takvimi st ON r.seans_id = st.id OR r.id = st.record_id
-                        WHERE r.tarih>=? AND r.tarih<=?
-                        ORDER BY r.tarih, r.saat, r.id
+                        FROM seans_takvimi st
+                        LEFT JOIN records r ON r.id = st.record_id OR r.seans_id = st.id
+                        WHERE st.tarih>=? AND st.tarih<=?
+                        ORDER BY st.tarih, st.saat, st.id
                         """,
-                        conn,
-                        params=(bas, bit),
+                        conn, params=(bas, bit)
                     )
                 else:
                     df = pd.read_sql_query(
                         """
-                        SELECT 
-                            r.tarih,
-                            COALESCE(r.saat, st.saat, '') AS saat,
-                            r.danisan_adi,
-                            r.terapist,
-                            r.hizmet_bedeli AS seans_ucreti,
-                            r.alinan_ucret AS alinan_odeme,
-                            r.kalan_borc AS kalan_borc,
+                        SELECT
+                            st.id AS seans_id,
+                            st.tarih,
+                            COALESCE(st.saat, '') AS saat,
+                            COALESCE(r.danisan_adi, st.danisan_adi, '') AS danisan_adi,
+                            COALESCE(r.terapist, st.terapist, '') AS terapist,
+                            COALESCE(r.hizmet_bedeli, 0) AS seans_ucreti,
+                            COALESCE(r.alinan_ucret, 0) AS alinan_odeme,
+                            COALESCE(r.kalan_borc, 0) AS kalan_borc,
                             COALESCE(r.notlar, st.notlar, '') AS notlar
-                        FROM records r
-                        LEFT JOIN seans_takvimi st ON r.seans_id = st.id OR r.id = st.record_id
-                        WHERE r.tarih>=? AND r.tarih<=? AND r.terapist=?
-                        ORDER BY r.tarih, r.saat, r.id
+                        FROM seans_takvimi st
+                        LEFT JOIN records r ON r.id = st.record_id OR r.seans_id = st.id
+                        WHERE st.tarih>=? AND st.tarih<=? AND COALESCE(r.terapist, st.terapist, '')=?
+                        ORDER BY st.tarih, st.saat, st.id
                         """,
-                        conn,
-                        params=(bas, bit, self.kullanici_terapist),
+                        conn, params=(bas, bit, self.kullanici_terapist)
                     )
-                conn.close()
             except Exception as e:
-                log_exception("_rapor_pencere_load", e)
-                df = pd.DataFrame(columns=["tarih", "saat", "danisan_adi", "terapist", "seans_ucreti", "alinan_odeme", "kalan_borc", "notlar"])
+                log_exception("_rapor_pencere_records", e)
+                df = pd.DataFrame(columns=["seans_id", "tarih", "saat", "danisan_adi", "terapist", "seans_ucreti", "alinan_odeme", "kalan_borc", "notlar"])
+            finally:
+                try:
+                    if conn is not None:
+                        conn.close()
+                except Exception:
+                    pass
 
-            for idx, r in df.iterrows():
-                tag = "even" if idx % 2 == 0 else "odd"
-                if float(r.get("kalan_borc", 0) or 0) > 0:
-                    tag = "borclu" if tag == "odd" else "borclu_even"
-                else:
-                    tag = "tamam" if tag == "odd" else "tamam_even"
-                tree.insert(
-                    "",
-                    END,
-                    values=(
-                        r.get("tarih", ""),
-                        r.get("saat", ""),
-                        r.get("danisan_adi", ""),
-                        r.get("terapist", ""),
-                        format_money(r.get("seans_ucreti", 0) or 0),
-                        format_money(r.get("alinan_odeme", 0) or 0),
-                        format_money(r.get("kalan_borc", 0) or 0),
-                        r.get("notlar", "") or "",
-                    ),
-                    tags=(tag,),
-                )
-
+            for _, r in df.iterrows():
+                tree_r.insert("", END, values=(
+                    int(r.get("seans_id", 0) or 0), r.get("tarih", ""), r.get("saat", ""), r.get("danisan_adi", ""),
+                    r.get("terapist", ""), format_money(r.get("seans_ucreti", 0) or 0), format_money(r.get("alinan_odeme", 0) or 0),
+                    format_money(r.get("kalan_borc", 0) or 0), r.get("notlar", "") or ""
+                ))
             return df
 
-        df_cache = {"df": _load()}
-        
-        # ✅ OTOMASYON 4: Rapor penceresi açıldığında otomatik yükle ve periyodik yenile
-        # İlk yükleme zaten yapıldı (_load() çağrıldı)
-        # Her 30 saniyede bir otomatik yenile (opsiyonel - kullanıcı isterse kapatabilir)
-        def _auto_refresh():
+        def _load_kasa():
+            for iid in tree_k.get_children():
+                tree_k.delete(iid)
+            conn = None
             try:
-                if win.winfo_exists():
-                    df_cache["df"] = _load()
-                    # Özet bilgileri de güncelle
-                    s = self._range_summary(bas, bit, None if self.kullanici_yetki == "kurum_muduru" else (self.kullanici_terapist or None))
-                    net = float(s["kasa_giren"]) - float(s["kasa_cikan"])
-                    # Özet label'ları güncelle (eğer hala açıksa)
-                    win.after(30000, _auto_refresh)  # 30 saniye sonra tekrar
-            except Exception:
-                pass  # Pencere kapanmışsa durdur
-        
-        # İlk otomatik yenilemeyi başlat (30 saniye sonra)
-        win.after(30000, _auto_refresh)
+                conn = self.veritabani_baglan()
+                params = [bas, bit]
+                sql = """
+                    SELECT id, tarih, tip, aciklama, tutar, COALESCE(odeme_sekli,''), COALESCE(gider_kategorisi,'')
+                    FROM kasa_hareketleri
+                    WHERE tarih>=? AND tarih<=?
+                """
+                if self.kullanici_yetki != "kurum_muduru" and self.kullanici_terapist:
+                    sql += " AND (record_id IN (SELECT id FROM records WHERE terapist=?))"
+                    params.append(self.kullanici_terapist)
+                sql += " ORDER BY tarih, id"
+                df = pd.read_sql_query(sql, conn, params=tuple(params))
+            except Exception as e:
+                log_exception("_rapor_pencere_kasa", e)
+                df = pd.DataFrame(columns=["id", "tarih", "tip", "aciklama", "tutar", "odeme_sekli", "gider_kategorisi"])
+            finally:
+                try:
+                    if conn is not None:
+                        conn.close()
+                except Exception:
+                    pass
+
+            for _, r in df.iterrows():
+                tree_k.insert("", END, values=(
+                    int(r.get("id", 0) or 0), r.get("tarih", ""), r.get("tip", ""), r.get("aciklama", ""),
+                    format_money(r.get("tutar", 0) or 0), r.get("odeme_sekli", "") or "", r.get("gider_kategorisi", "") or ""
+                ))
+            return df
+
+        def _secim_modu(adet: int, tur_adi: str) -> str | None:
+            if adet <= 0:
+                return None
+            if adet == 1:
+                return "tek"
+            yanit = messagebox.askyesnocancel("Silme Modu", f"{adet} adet {tur_adi} seçili.\n\nEvet: Sadece ilk seçiliyi sil\nHayır: Tüm seçilileri sil\nİptal: Vazgeç")
+            if yanit is None:
+                return None
+            return "tek" if yanit else "toplu"
+
+        def _sil_rapor_secili():
+            sec_tab = nb.select()
+            conn = None
+            try:
+                conn = self.veritabani_baglan()
+                pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
+                if sec_tab == str(tab_records):
+                    sec = list(tree_r.selection())
+                    mod = _secim_modu(len(sec), "seans kaydı")
+                    if not mod:
+                        return
+                    hedef = sec[:1] if mod == "tek" else sec
+                    silinen = 0
+                    for iid in hedef:
+                        vals = tree_r.item(iid).get("values") or []
+                        seans_id = int(vals[0] or 0) if vals else 0
+                        if seans_id <= 0:
+                            continue
+                        if pipeline.kayit_sil(seans_id):
+                            silinen += 1
+                    if silinen <= 0:
+                        messagebox.showwarning("Uyarı", "Silinebilecek uygun seans kaydı bulunamadı.")
+                        return
+                    messagebox.showinfo("Tamam", f"{silinen} seans kaydı silindi.")
+                    self.kayitlari_listele()
+                    self._refresh_borc_tables()
+                    _load_records(); _load_kasa(); self._refresh_open_reports()
+                else:
+                    sec = list(tree_k.selection())
+                    mod = _secim_modu(len(sec), "kasa hareketi")
+                    if not mod:
+                        return
+                    hedef = sec[:1] if mod == "tek" else sec
+                    silinen = 0
+                    for iid in hedef:
+                        vals = tree_k.item(iid).get("values") or []
+                        kid = int(vals[0] or 0) if vals else 0
+                        if kid <= 0:
+                            continue
+                        if pipeline.kasa_hareketi_sil(kid):
+                            silinen += 1
+                    if silinen <= 0:
+                        messagebox.showwarning("Uyarı", "Silinebilecek kasa kaydı bulunamadı.")
+                        return
+                    messagebox.showinfo("Tamam", f"{silinen} kasa hareketi silindi.")
+                    _load_kasa()
+                    self.kayitlari_listele()
+                    self._refresh_borc_tables()
+                    self._refresh_open_reports()
+            except Exception as e:
+                messagebox.showerror("Hata", f"Silme hatası:\n{e}")
+                log_exception("_rapor_pencere_sil", e)
+            finally:
+                try:
+                    if conn is not None:
+                        conn.close()
+                except Exception:
+                    pass
+
+        df_cache = {"records": _load_records(), "kasa": _load_kasa()}
+
+        def _yenile():
+            df_cache["records"] = _load_records()
+            df_cache["kasa"] = _load_kasa()
+
+        self._register_report_refresher(win, _yenile)
 
         def _excel():
-            df = df_cache.get("df")
+            sec_tab = nb.select()
+            df = df_cache.get("records") if sec_tab == str(tab_records) else df_cache.get("kasa")
             if df is None:
                 return
             path = filedialog.asksaveasfilename(
@@ -1826,7 +1938,8 @@ class App(ttk.Window):
 
         btns = ttk.Frame(win, padding=10)
         btns.pack(fill=X)
-        ttk.Button(btns, text="Yenile", bootstyle="secondary", command=lambda: df_cache.update(df=_load())).pack(side=LEFT, padx=6)
+        ttk.Button(btns, text="Yenile", bootstyle="secondary", command=_yenile).pack(side=LEFT, padx=6)
+        ttk.Button(btns, text="Seçiliyi/Seçilileri Sil", bootstyle="danger", command=_sil_rapor_secili).pack(side=LEFT, padx=6)
         ttk.Button(btns, text="Excel'e Aktar", bootstyle="primary", command=_excel).pack(side=RIGHT, padx=6)
 
     def _reload_logos(self) -> None:
@@ -1972,10 +2085,7 @@ class App(ttk.Window):
         self.nb.add(self.tab_ucret_takibi, text="ÜCRET TAKİPİ")
         self._build_ucret_takibi_tab()
 
-        # ÇOCUK GÜNLÜK TAKİP - Oda ve personel takibi
-        self.tab_cocuk_gunluk = ttk.Frame(self.nb, padding=10)
-        self.nb.add(self.tab_cocuk_gunluk, text="ÇOCUK GÜNLÜK TAKİP")
-        self._build_cocuk_gunluk_tab()
+        # Çocuk günlük takip modülü kaldırıldı (talep doğrultusunda).
 
         # KASA DEFTERİ - Günlük/haftalık/aylık raporlar
         self.tab_kasa = ttk.Frame(self.nb, padding=10)
@@ -2033,6 +2143,13 @@ class App(ttk.Window):
         wrapper = ttk.Frame(self.tab_modules, padding=20)
         wrapper.pack(fill=BOTH, expand=True)
 
+        ttk.Label(
+            wrapper,
+            text="Açıklama: Bu ana sayfa kurumun temel modüllerine hızlı erişim sağlar.",
+            font=("Segoe UI", 9),
+            foreground="gray",
+        ).pack(anchor=W, pady=(0, 6))
+
         # Başlık
         head = ttk.Frame(wrapper)
         head.pack(fill=X, pady=(0, 20))
@@ -2051,6 +2168,8 @@ class App(ttk.Window):
                 log_exception("ana_sayfa_yenile", e)
         
         ttk.Button(head, text="🔄 Yenile", bootstyle="info", command=ana_sayfa_yenile).pack(side=RIGHT, padx=10)
+        ttk.Label(wrapper, text="Açıklama: Yenile butonu paneldeki canlı özetleri ve borç listelerini günceller.",
+                  font=("Segoe UI", 9), foreground="gray").pack(anchor="w", pady=(0, 10))
         
         # ✅ PERSONEL CÜZDANI: Terapistlerin kendi bakiyelerini görebileceği bilgi etiketi
         if self.kullanici_terapist and self.kullanici_yetki != "kurum_muduru":
@@ -2090,7 +2209,7 @@ class App(ttk.Window):
                 "operasyonel": {"bugun_beklenen_seans": 0, "bugun_tamamlanan_seans": 0, "bugun_toplam_seans": 0},
                 "finansal": {"bugun_kasa_giren": 0.0, "beklenen_toplam_alacak": 0.0, "toplam_borc": 0.0},
                 "kritik": [],
-                "devamsizlik": []
+                "borclular": []
             }
         
         # Üst satır: Operasyonel Metrikler
@@ -2103,14 +2222,14 @@ class App(ttk.Window):
         ops_row.pack(fill=X)
         
         def create_dashboard_card(parent, title, value, icon, color, subtitle=""):
-            card = ttk.Labelframe(parent, text="", padding=12, bootstyle="secondary")
+            card = ttk.Labelframe(parent, text="", padding=8, bootstyle="secondary")
             card.pack(side=LEFT, fill=BOTH, expand=True, padx=5)
             
-            ttk.Label(card, text=icon, font=("Segoe UI", 20)).pack()
-            ttk.Label(card, text=str(value), font=("Segoe UI", 16, "bold"), bootstyle=color).pack(pady=(5, 0))
-            ttk.Label(card, text=title, font=("Segoe UI", 9), foreground="gray").pack()
+            ttk.Label(card, text=icon, font=("Segoe UI", 14)).pack()
+            ttk.Label(card, text=str(value), font=("Segoe UI", 12, "bold"), bootstyle=color).pack(pady=(2, 0))
+            ttk.Label(card, text=title, font=("Segoe UI", 8), foreground="gray").pack()
             if subtitle:
-                ttk.Label(card, text=subtitle, font=("Segoe UI", 8), foreground="darkgray").pack(pady=(2, 0))
+                ttk.Label(card, text=subtitle, font=("Segoe UI", 7), foreground="darkgray").pack(pady=(1, 0))
             return card
         
         ops = dashboard_data["operasyonel"]
@@ -2186,97 +2305,64 @@ class App(ttk.Window):
             ttk.Label(dashboard_frame, text="✅ Tüm danışanların ödemeleri güncel!", 
                      font=("Segoe UI", 10), bootstyle="success").pack(pady=10)
         
-        # ✅ DEVAMSIZLIK ALARMI: Üst üste 3 seansa gelmeyen danışanlar
-        if dashboard_data.get("devamsizlik"):
-            devamsizlik_frame = ttk.Frame(dashboard_frame)
-            devamsizlik_frame.pack(fill=X)
-            
-            ttk.Label(devamsizlik_frame, text="⚠️ Devamsızlık Alarmı: Uzun Süredir Gelmeyen Danışanlar", 
-                     font=("Segoe UI", 12, "bold"), bootstyle="warning").pack(anchor=W, pady=(0, 8))
-            
-            devamsizlik_tree_frame = ttk.Frame(devamsizlik_frame)
-            devamsizlik_tree_frame.pack(fill=X)
-            
-            devamsizlik_tree = ttk.Treeview(devamsizlik_tree_frame, columns=("Danışan", "Son Seans", "Devamsızlık"), 
-                                           show="headings", height=min(6, len(dashboard_data["devamsizlik"]) + 1))
-            devamsizlik_tree.heading("Danışan", text="Danışan Adı")
-            devamsizlik_tree.heading("Son Seans", text="Son Seans Tarihi")
-            devamsizlik_tree.heading("Devamsızlık", text="Gelmeyen Gün")
-            devamsizlik_tree.column("Danışan", width=250)
-            devamsizlik_tree.column("Son Seans", width=150, anchor="center")
-            devamsizlik_tree.column("Devamsızlık", width=150, anchor="center")
-            
-            for item in dashboard_data["devamsizlik"]:
-                devamsizlik_gunu = item["devamsizlik_gunu"]
-                devamsizlik_text = f"{devamsizlik_gunu} gün"
-                if devamsizlik_gunu >= 7:
-                    devamsizlik_text += " 🔴"
-                    tag_name = "devamsizlik_kritik"
-                elif devamsizlik_gunu >= 5:
-                    devamsizlik_text += " 🟠"
-                    tag_name = "devamsizlik_yuksek"
-                else:
-                    devamsizlik_text += " 🟡"
-                    tag_name = "devamsizlik_orta"
-                
-                devamsizlik_tree.insert("", END, values=(
-                    item["danisan_adi"],
-                    item["son_seans_tarihi"],
-                    devamsizlik_text
-                ), tags=(tag_name,))
-            
-            devamsizlik_tree.tag_configure("devamsizlik_kritik", foreground="#d32f2f", background="#ffebee")
-            devamsizlik_tree.tag_configure("devamsizlik_yuksek", foreground="#f57c00", background="#fff3e0")
-            devamsizlik_tree.tag_configure("devamsizlik_orta", foreground="#fbc02d", background="#fffde7")
-            devamsizlik_tree.pack(side=LEFT, fill=BOTH, expand=True)
-            
-            devamsizlik_sb = ttk.Scrollbar(devamsizlik_tree_frame, orient=VERTICAL, command=devamsizlik_tree.yview)
-            devamsizlik_tree.configure(yscroll=devamsizlik_sb.set)
-            devamsizlik_sb.pack(side=RIGHT, fill=Y)
+        # ✅ BORÇ ALARMI: Borcu olan danışanları göster
+        borclular = dashboard_data.get("borclular") or []
+        if borclular:
+            borc_frame = ttk.Frame(dashboard_frame)
+            borc_frame.pack(fill=X)
+
+            ttk.Label(borc_frame, text="💳 Borcu Olan Danışanlar", 
+                     font=("Segoe UI", 12, "bold"), bootstyle="danger").pack(anchor=W, pady=(0, 8))
+
+            borc_tree_frame = ttk.Frame(borc_frame)
+            borc_tree_frame.pack(fill=X)
+
+            borc_tree = ttk.Treeview(borc_tree_frame, columns=("Danışan", "Kalan Borç", "Kayıt"), 
+                                     show="headings", height=min(8, len(borclular) + 1))
+            borc_tree.heading("Danışan", text="Danışan Adı")
+            borc_tree.heading("Kalan Borç", text="Kalan Borç")
+            borc_tree.heading("Kayıt", text="Açık Kayıt")
+            borc_tree.column("Danışan", width=260)
+            borc_tree.column("Kalan Borç", width=160, anchor="e")
+            borc_tree.column("Kayıt", width=120, anchor="center")
+
+            for item in borclular:
+                borc_tree.insert("", END, values=(
+                    item.get("danisan_adi", ""),
+                    format_money(item.get("kalan_borc", 0)),
+                    str(item.get("acik_kayit", 0)),
+                ))
+
+            borc_tree.pack(side=LEFT, fill=BOTH, expand=True)
+            borc_sb = ttk.Scrollbar(borc_tree_frame, orient=VERTICAL, command=borc_tree.yview)
+            borc_tree.configure(yscroll=borc_sb.set)
+            borc_sb.pack(side=RIGHT, fill=Y)
     
-
-    def _quick_actions_pencere(self):
-        win = ttk.Toplevel(self)
-        win.title("Hızlı İşlemler")
-        win.transient(self)
-        center_window_smart(win, 720, 520)
-        maximize_window(win)
-        self._brand_window(win)
-
-        box = ttk.Frame(win, padding=12)
-        box.pack(fill=BOTH, expand=True)
-
-        ttk.Label(box, text="HIZLI İŞLEMLER", font=("Segoe UI", 14, "bold"), bootstyle="primary").pack(anchor=W, pady=(0, 10))
-
-        def btn(text, cmd, style="primary"):
-            ttk.Button(box, text=text, command=cmd, bootstyle=style).pack(fill=X, pady=6)
-
-        btn("Seans Kaydı Ekle (Hızlı)", self.hizli_seans_kaydi_ekle, "success")
-        btn("Haftalık Ders/Ücret Takip", self.haftalik_ders_ucret_takip, "primary")
-        btn("Kasa Defteri (Günlük)", self.kasa_defteri_goster, "warning")
-        btn("İlk 5 Adım (Yardım)", self.ilk_5_adim_goster, "secondary")
-        btn("Kullanım Kılavuzu", self.kullanim_kilavuzu_ac, "secondary")
-
-        if self.kullanici_yetki == "kurum_muduru":
-            btn("Logo Yükle/Değiştir", self.logo_yukle_degistir, "secondary")
-            btn("Sistemi Sıfırla (DB Sil)", self.sistemi_sifirla, "danger")
 
     def _validate_money(self, newval: str) -> bool:
         try:
-         if s is None:
+            if newval is None:
+                return True
+            s = str(newval).strip()
+            if s == "":
+                return True
+            s = s.replace(",", ".")
+            float(s)
             return True
-         s = str(s).strip()
-         if s == "":
-            return True
-         s = s.replace(",", ".")
-        # sadece sayı gibi mi?
-         float(s)
-         return True
         except Exception:
-          return False
+            return False
 
     def veritabani_baglan(self) -> sqlite3.Connection:
         return connect_db()
+
+    def _table_has_column(self, conn: sqlite3.Connection, table: str, column: str) -> bool:
+        try:
+            cur = conn.cursor()
+            cur.execute(f"PRAGMA table_info({table})")
+            cols = [str(r[1]) for r in (cur.fetchall() or []) if len(r) > 1]
+            return column in cols
+        except Exception:
+            return False
 
     def _refresh_borc_tables(self) -> None:
         """Balance/records değişince danışan listesindeki borç sütununu yenile.
@@ -2294,6 +2380,23 @@ class App(ttk.Window):
         except Exception:
             pass
 
+    def _register_report_refresher(self, win, callback) -> None:
+        refs = getattr(self, "_open_report_refreshers", {})
+        refs[str(win)] = callback
+        self._open_report_refreshers = refs
+        try:
+            win.bind("<Destroy>", lambda e, k=str(win): self._open_report_refreshers.pop(k, None), add="+")
+        except Exception:
+            pass
+
+    def _refresh_open_reports(self) -> None:
+        refs = dict(getattr(self, "_open_report_refreshers", {}))
+        for key, cb in refs.items():
+            try:
+                cb()
+            except Exception:
+                self._open_report_refreshers.pop(key, None)
+
     def _reload_open_toplevels(self) -> None:
         """Açık olan Toplevel pencerelerinde _reload varsa çağır (danışan/liste güncellemeleri)."""
         try:
@@ -2310,8 +2413,14 @@ class App(ttk.Window):
     def _build_records_tab(self):
         top = ttk.Labelframe(self.tab_records, text="Yeni Seans Kaydı (Tarih, Danışan Adı, Terapist, Alınacak Ücret, Alınan Ücret, Kalan Borç)", padding=16, bootstyle="primary")
         top.pack(fill=X, pady=(0, 12))
+        # Farklı ekran genişliklerinde taşmayı azaltmak için kolonlar esnek
+        for col in (1, 3, 5):
+            try:
+                top.grid_columnconfigure(col, weight=1)
+            except Exception:
+                pass
 
-        # Tabloya göre: Tarih, Danışan Adı, Terapist (saat haftalık programda; formda yok)
+        # Tabloya göre: Tarih, Danışan Adı, Terapist (saat otomatik atanır; formda yok)
         ttk.Label(top, text="Tarih:", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, padx=8, pady=8, sticky=W)
         self.tarih_var = ttk.StringVar(value=datetime.datetime.now().strftime("%d.%m.%Y"))
         ttk.Entry(top, textvariable=self.tarih_var, width=16, font=("Segoe UI", 10)).grid(
@@ -2353,7 +2462,7 @@ class App(ttk.Window):
                     kullanici_id = self.kullanici[0] if self.kullanici else None
                     pipeline = DataPipeline(conn, kullanici_id)
                     
-                    # Enterprise Smart Defaults: Tek metod çağrısı ile tüm bilgileri al (saat haftalık programda; varsayılan 09:00)
+                    # Enterprise Smart Defaults: Tek metod çağrısı ile tüm bilgileri al (varsayılan saat 09:00)
                     try:
                         tarih = self._tarih_db()
                         saat = "09:00"
@@ -2361,15 +2470,14 @@ class App(ttk.Window):
                         
                         # 1) Otomatik fiyat (oda seçimi kaldırıldı)
                         if float(smart_defaults.get("price", 0) or 0) > 0:
-                            self._otomatik_bedel = smart_defaults["price"]
-                            if hasattr(self, "ent_bedel"):
-                                try:
-                                    mevcut = (self.ent_bedel.get() or "").strip()
-                                    if not mevcut or parse_money(mevcut) == 0:
-                                        self.ent_bedel.delete(0, END)
-                                        self.ent_bedel.insert(0, format_money(smart_defaults["price"]))
-                                except Exception:
-                                    pass
+                            self._otomatik_bedel = float(smart_defaults["price"] or 0)
+                            if hasattr(self, "lbl_bedel"):
+                                self.lbl_bedel.config(text=format_money(self._otomatik_bedel))
+                            if hasattr(self, "ent_alinan"):
+                                mevcut_alinan = (self.ent_alinan.get() or "").strip()
+                                if (not mevcut_alinan) or parse_money(mevcut_alinan) == 0:
+                                    self.ent_alinan.delete(0, END)
+                                    self.ent_alinan.insert(0, format_money(self._otomatik_bedel))
                     except Exception as e:
                         log_exception("smart_defaults_kayit_ekle", e)
                     
@@ -2397,41 +2505,31 @@ class App(ttk.Window):
         self.ent_alinan.grid(row=1, column=3, padx=8, pady=8, sticky=W)
 
         ttk.Label(top, text="NOTLAR:", font=("Segoe UI", 10, "bold")).grid(row=1, column=4, padx=8, pady=8, sticky=W)
-        self.ent_not = ttk.Entry(top, width=50, font=("Segoe UI", 10))
+        self.ent_not = ttk.Entry(top, width=36, font=("Segoe UI", 10))
         self.ent_not.grid(row=1, column=5, columnspan=2, padx=8, pady=8, sticky=W+E)
         
-        info_label = ttk.Label(top, text="ℹ️ Alınan ücret otomatik dolar (istersen değiştirebilirsin). Saat haftalık programda.", 
+        info_label = ttk.Label(top, text="ℹ️ Alınan ücret otomatik dolar (istersen değiştirebilirsin). Seans kaydı haftalık programdan bağımsızdır.", 
                               font=("Segoe UI", 9), foreground="gray")
-        info_label.grid(row=2, column=0, columnspan=6, padx=8, pady=(0, 8), sticky=W)
+        info_label.grid(row=2, column=0, columnspan=7, padx=8, pady=(0, 8), sticky=W)
 
-        ttk.Button(top, text="KAYDET", bootstyle="success", command=self.kayit_ekle, width=20).grid(
-            row=0, column=6, rowspan=3, padx=12, pady=8, sticky="nsew"
+        ttk.Button(top, text="KAYDET", bootstyle="success", command=self.kayit_ekle, width=14).grid(
+            row=0, column=6, rowspan=1, padx=8, pady=8, sticky="ew"
         )
 
         # RAPORLAR (günlük / haftalık / toplam) - kasa için gereken özetler burada
-        rep = ttk.Labelframe(self.tab_records, text="Raporlar", padding=10, bootstyle="secondary")
+        rep = ttk.Labelframe(self.tab_records, text="Raporlar", padding=8, bootstyle="secondary")
         rep.pack(fill=X, pady=(0, 10))
-        ttk.Button(rep, text="Günlük Rapor", bootstyle="primary", command=self.gunluk_rapor_pencere).pack(side=LEFT, padx=6)
-        ttk.Button(rep, text="Haftalık Rapor", bootstyle="primary", command=self.haftalik_rapor_pencere).pack(side=LEFT, padx=6)
-        ttk.Button(rep, text="Toplam Rapor (Genel)", bootstyle="secondary", command=self.toplam_rapor_pencere).pack(side=LEFT, padx=6)
-        ttk.Button(rep, text="🔍 Senkronizasyon Kontrol", bootstyle="info", command=self.senkronizasyon_kontrol_pencere).pack(
-            side=RIGHT, padx=6
-        )
-        ttk.Button(rep, text="Senkronize (Takvim↔Seans)", bootstyle="warning", command=self.senkronize_takvim_seanslar).pack(
-            side=RIGHT, padx=6
-        )
-        ttk.Button(rep, text="Belirsizleri Düzelt", bootstyle="warning-outline", command=self.belirsizleri_duzelt_pencere).pack(
-            side=RIGHT, padx=6
-        )
-        self._sync_badge_lbl = ttk.Label(rep, text="Belirsiz: 0", font=("Segoe UI", 10, "bold"), foreground="#a66f00")
-        self._sync_badge_lbl.pack(side=RIGHT, padx=10)
-
+        rep.grid_columnconfigure(0, weight=1)
+        rep.grid_columnconfigure(1, weight=1)
+        ttk.Button(rep, text="Günlük Rapor", width=18, bootstyle="primary", command=self.gunluk_rapor_pencere).grid(row=0, column=0, padx=4, pady=4, sticky="ew")
+        ttk.Button(rep, text="Haftalık Rapor", width=18, bootstyle="primary", command=self.haftalik_rapor_pencere).grid(row=0, column=1, padx=4, pady=4, sticky="ew")
+        ttk.Button(rep, text="Toplam Rapor", width=18, bootstyle="secondary", command=self.toplam_rapor_pencere).grid(row=1, column=0, padx=4, pady=(2,4), sticky="ew")
+        ttk.Button(rep, text="📘 Kılavuz", width=18, bootstyle="info", command=self.kullanim_kilavuzu_ac).grid(row=1, column=1, padx=4, pady=(2,4), sticky="ew")
         ttk.Label(
             self.tab_records,
-            text="İpucu: 'Senkronize' iki modülü eşler. 'Belirsizleri Düzelt' otomatik eşleştirilemeyenleri sana sorar.",
+            text="İpucu: Seans kaydı ve ödeme işlemleri otomatik işlenir; ek senkronizasyon ayarı gerekmez.",
             foreground="gray",
         ).pack(anchor=W, pady=(0, 8), padx=4)
-        self._update_sync_badge()
 
         mid = ttk.Frame(self.tab_records)
         mid.pack(fill=X, pady=(0, 8))
@@ -2450,6 +2548,24 @@ class App(ttk.Window):
             self.tab_records, text="", font=("Segoe UI", 10), wraplength=800, justify="left",
             foreground="#0066cc", background="#f0f8ff", relief="solid", borderwidth=1, padding=10
         )
+
+        # Seçim/action butonlarını tablonun üstüne al: küçük ekranlarda görünür kalsın
+        sec_toolbar = ttk.Frame(self.tab_records)
+        sec_toolbar.pack(fill=X, pady=(0, 4), padx=4)
+        ttk.Label(sec_toolbar, text="Seç:", font=("Segoe UI", 10, "bold")).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(sec_toolbar, text="Hepsini Seç", bootstyle="secondary-outline", command=self._seans_hepsini_sec).pack(side=LEFT, padx=4)
+        ttk.Button(sec_toolbar, text="Seçimi Kaldır", bootstyle="secondary-outline", command=self._seans_secimi_kaldir).pack(side=LEFT, padx=4)
+        ttk.Button(sec_toolbar, text="Seçilileri Sil", bootstyle="danger-outline", command=self.seclileri_sil).pack(side=LEFT, padx=4)
+
+        action_toolbar = ttk.Frame(self.tab_records)
+        action_toolbar.pack(fill=X, pady=(0, 8), padx=4)
+        ttk.Label(action_toolbar, text="Seçili Kayıt İşlemleri:", font=("Segoe UI", 10, "bold")).pack(side=LEFT, padx=(0, 10))
+
+        self.btn_odeme_ekle = ttk.Button(action_toolbar, text="💰 Ödeme Ekle", bootstyle="success", command=self.odeme_ekle, state="disabled")
+        self.btn_odeme_ekle.pack(side=LEFT, padx=5)
+
+        self.btn_kayit_sil = ttk.Button(action_toolbar, text="🗑️ Kaydı Sil", bootstyle="danger", command=self.kayit_sil, state="disabled")
+        self.btn_kayit_sil.pack(side=LEFT, padx=5)
 
         table = ttk.Frame(self.tab_records)
         table.pack(fill=BOTH, expand=True)
@@ -2478,28 +2594,6 @@ class App(ttk.Window):
         
         # Notlar kolonu kaldırıldı; tıklama özelliği yok
         
-        # ✅ SEÇ BUTONLARI: Hepsini seç, Seçimi kaldır, Seçilileri sil
-        sec_toolbar = ttk.Frame(self.tab_records)
-        sec_toolbar.pack(fill=X, pady=(0, 4), padx=4)
-        ttk.Label(sec_toolbar, text="Seç:", font=("Segoe UI", 10, "bold")).pack(side=LEFT, padx=(0, 8))
-        ttk.Button(sec_toolbar, text="Hepsini Seç", bootstyle="secondary-outline", command=self._seans_hepsini_sec).pack(side=LEFT, padx=4)
-        ttk.Button(sec_toolbar, text="Seçimi Kaldır", bootstyle="secondary-outline", command=self._seans_secimi_kaldir).pack(side=LEFT, padx=4)
-        ttk.Button(sec_toolbar, text="Seçilileri Sil", bootstyle="danger-outline", command=self.seclileri_sil).pack(side=LEFT, padx=4)
-        
-        # ✅ HER ZAMAN GÖRÜNÜR ACTION BUTONLARI: Seçili kayıt için işlem butonları
-        action_toolbar = ttk.Frame(self.tab_records)
-        action_toolbar.pack(fill=X, pady=(0, 8), padx=4)
-        
-        ttk.Label(action_toolbar, text="Seçili Kayıt İşlemleri:", font=("Segoe UI", 10, "bold")).pack(side=LEFT, padx=(0, 10))
-        
-        self.btn_odeme_ekle = ttk.Button(action_toolbar, text="💰 Ödeme Ekle", bootstyle="success", 
-                                         command=self.odeme_ekle, state="disabled")
-        self.btn_odeme_ekle.pack(side=LEFT, padx=5)
-        
-        self.btn_kayit_sil = ttk.Button(action_toolbar, text="🗑️ Kaydı Sil", bootstyle="danger", 
-                                       command=self.kayit_sil, state="disabled")
-        self.btn_kayit_sil.pack(side=LEFT, padx=5)
-        
         # Seçim değiştiğinde butonları aktif/pasif yap
         def _on_selection_change(event):
             sel = self.tree.selection()
@@ -2512,19 +2606,6 @@ class App(ttk.Window):
         
         self.tree.bind("<<TreeviewSelect>>", _on_selection_change)
         
-        # Sağ tık menüsü (alternatif)
-        self.ctx = ttk.Menu(self, tearoff=0)
-        self.ctx.add_command(label="Ödeme Ekle", command=self.odeme_ekle)
-        self.ctx.add_command(label="Kaydı Sil", command=self.kayit_sil)
-        self.ctx.add_separator()
-        self.ctx.add_command(label="Seçilileri Sil", command=self.seclileri_sil)
-        self.tree.bind("<Button-2>", self._ctx_open)
-
-    def _ctx_open(self, event):
-        iid = self.tree.identify_row(event.y)
-        if iid:
-            self.tree.selection_set(iid)
-            self.ctx.post(event.x_root, event.y_root)
 
     def _selected_id(self):
         sel = self.tree.selection()
@@ -2550,6 +2631,16 @@ class App(ttk.Window):
                     pass
         return ids
 
+    def _secim_modu_sor(self, adet: int, tur_adi: str = "kayıt") -> str | None:
+        if adet <= 0:
+            return None
+        if adet == 1:
+            return "tek"
+        yanit = messagebox.askyesnocancel("Silme Modu", f"{adet} adet {tur_adi} seçili.\n\nEvet: Sadece ilk seçiliyi sil\nHayır: Tüm seçilileri sil\nİptal: Vazgeç")
+        if yanit is None:
+            return None
+        return "tek" if yanit else "toplu"
+
     def _seans_hepsini_sec(self):
         """Seans Takip listesindeki tüm satırları seç."""
         self.tree.selection_set(self.tree.get_children())
@@ -2559,23 +2650,28 @@ class App(ttk.Window):
         self.tree.selection_remove(*self.tree.selection())
 
     def seclileri_sil(self):
-        """Seçili tüm kayıtları sil (onay sonrası)."""
+        """Seçili kayıtlar için tekli/toplu silme modu sunar."""
         ids = self._selected_ids()
         if not ids:
             messagebox.showwarning("Uyarı", "Lütfen silmek istediğiniz kayıtları seçin!")
             return
+        mod = self._secim_modu_sor(len(ids), "seans kaydı")
+        if not mod:
+            return
+        hedef_ids = ids[:1] if mod == "tek" else ids
         if not messagebox.askyesno(
             "Onay",
-            f"{len(ids)} adet kayıt silinecek.\n\nİlgili tüm veriler (seans takvimi, records, ödemeler, kasa kayıtları) silinecektir!\n\nDevam etmek istiyor musunuz?"
+            f"{len(hedef_ids)} adet kayıt silinecek.\n\nİlgili tüm veriler (seans takvimi, records, ödemeler, kasa kayıtları) silinecektir!\n\nDevam etmek istiyor musunuz?"
         ):
             return
+
         conn = None
         try:
             conn = self.veritabani_baglan()
             kullanici_id = self.kullanici[0] if self.kullanici else None
             pipeline = DataPipeline(conn, kullanici_id)
             silinen = 0
-            for seans_id in ids:
+            for seans_id in hedef_ids:
                 try:
                     if pipeline.kayit_sil(seans_id=seans_id):
                         silinen += 1
@@ -2584,6 +2680,7 @@ class App(ttk.Window):
             if silinen > 0:
                 self.kayitlari_listele()
                 self._refresh_borc_tables()
+                self._refresh_open_reports()
             messagebox.showinfo("Tamamlandı", f"{silinen} kayıt silindi.")
         except Exception as e:
             messagebox.showerror("Hata", f"Silme hatası:\n{e}")
@@ -2667,7 +2764,7 @@ class App(ttk.Window):
             txt_adres.pack(fill=X, pady=2)
             
             def _kaydet():
-                ad_soyad = (ent_ad.get() or "").strip().upper()
+                ad_soyad = (ent_ad.get() or "").strip()
                 if not ad_soyad:
                     messagebox.showwarning("Uyarı", "AD SOYAD zorunludur!")
                     return
@@ -2785,38 +2882,27 @@ class App(ttk.Window):
 
         # ✅ ENTERPRISE: AKILLI VARSAYILANLAR (Zero-Effort UI)
         def _akilli_varsayilanlar_ata_hizli(*args):
-            """Enterprise Smart Defaults: Otomatik fiyat, oda ve çakışma kontrolü"""
+            """Yeni seans kaydı için danışan+hoca fiyatını otomatik doldurur."""
             try:
-                danisan_adi = (cb_dan.get() or "").strip().upper()
+                danisan_adi = (cb_dan.get() or "").strip()
                 terapist_adi = (cb_ter.get() or "").strip()
-                
-                # Eğer hizmet bedeli zaten girilmişse, değiştirme
-                mevcut_bedel = ent_bedel.get().strip()
+                if not danisan_adi or not terapist_adi:
+                    return
+
+                conn = self.veritabani_baglan()
+                kullanici_id = self.kullanici[0] if self.kullanici else None
+                pipeline = DataPipeline(conn, kullanici_id)
                 try:
-                    if mevcut_bedel:
-                        bedel_val = parse_money(mevcut_bedel)
-                        if bedel_val > 0:
-                            return
-                except Exception:
-                    pass
-                
-                if danisan_adi and terapist_adi:
-                    conn = self.veritabani_baglan()
-                    kullanici_id = self.kullanici[0] if self.kullanici else None
-                    pipeline = DataPipeline(conn, kullanici_id)
-                    
-                    try:
-                        tarih = self._tarih_db_from(tarih_var.get())
-                        saat = "09:00"
-                        smart_defaults = pipeline.get_smart_defaults(danisan_adi, terapist_adi, tarih, saat)
-                        
-                        # 1) Otomatik fiyat (oda seçimi kaldırıldı)
-                        if smart_defaults["price"] > 0:
-                            ent_bedel.delete(0, END)
-                            ent_bedel.insert(0, format_money(smart_defaults["price"]))
-                    except Exception as e:
-                        log_exception("smart_defaults_hizli", e)
-                    
+                    tarih = self._tarih_db_from(tarih_var.get())
+                    smart_defaults = pipeline.get_smart_defaults(danisan_adi, terapist_adi, tarih, "09:00")
+                    bedel = float(smart_defaults.get("price", 0) or 0)
+                    ent_bedel.configure(state="normal")
+                    ent_bedel.delete(0, END)
+                    ent_bedel.insert(0, format_money(bedel))
+                    ent_bedel.configure(state="readonly")
+                except Exception as e:
+                    log_exception("smart_defaults_hizli", e)
+                finally:
                     conn.close()
             except Exception as e:
                 log_exception("_akilli_varsayilanlar_ata_hizli", e)
@@ -2827,7 +2913,7 @@ class App(ttk.Window):
         cb_ter.bind("<<ComboboxSelected>>", _akilli_varsayilanlar_ata_hizli)
 
         ttk.Label(frm, text="ALINAN ÜCRET (₺):").grid(row=3, column=0, sticky=W, padx=6, pady=6)
-        ent_bedel = ttk.Entry(frm, validate="key", validatecommand=self._vcmd_money, width=18)
+        ent_bedel = ttk.Entry(frm, validate="key", validatecommand=self._vcmd_money, width=18, state="readonly")
         ent_bedel.grid(row=3, column=1, sticky=W, padx=6, pady=6)
 
         ttk.Label(frm, text="GÜNCEL (Alınan - ₺):").grid(row=4, column=0, sticky=W, padx=6, pady=6)
@@ -2840,7 +2926,7 @@ class App(ttk.Window):
         ent_not.grid(row=5, column=1, sticky=W, padx=6, pady=6)
 
         def _save():
-            danisan = (cb_dan.get() or "").strip().upper()
+            danisan = (cb_dan.get() or "").strip()
             terapist = (cb_ter.get() or "").strip()
             if not danisan:
                 messagebox.showwarning("Uyarı", "Lütfen danışan adını giriniz!")
@@ -2884,7 +2970,7 @@ class App(ttk.Window):
                     hizmet_bedeli=bedel,
                     alinan_ucret=alinan,
                     notlar=notlar,
-                    oda="",
+                    oda=oda,
                     check_oda_cakisma=False
                 )
                 
@@ -2901,7 +2987,9 @@ class App(ttk.Window):
 
             # peş peşe kayıt için formu temizle
             cb_dan.set("")
+            ent_bedel.configure(state="normal")
             ent_bedel.delete(0, END)
+            ent_bedel.configure(state="readonly")
             ent_alinan.delete(0, END)
             ent_alinan.insert(0, "0")
             ent_not.delete(0, END)
@@ -2942,13 +3030,40 @@ class App(ttk.Window):
         ent_alinan.bind("<Return>", lambda e: ent_not.focus_set())
         ent_not.bind("<Return>", lambda e: _save())
 
+    def _haftalik_programda_seans_bul(self, danisan: str, terapist: str, tarih_db: str):
+        """Haftalık programdan ilgili gün/personel/danışan seans slotunu döndürür (saat, oda)."""
+        try:
+            dt = datetime.datetime.strptime(tarih_db, "%Y-%m-%d")
+            hafta_bas = (dt - datetime.timedelta(days=dt.weekday())).strftime("%Y-%m-%d")
+            gunler = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
+            gun = gunler[dt.weekday()]
+            conn = self.veritabani_baglan()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT saat, COALESCE(oda_adi,'')
+                FROM haftalik_seans_programi
+                WHERE personel_adi=? AND hafta_baslangic_tarihi=? AND gun=? AND UPPER(TRIM(COALESCE(ogrenci_adi,'')))=UPPER(TRIM(?))
+                ORDER BY saat
+                LIMIT 1
+                """,
+                (terapist, hafta_bas, gun, danisan),
+            )
+            row = cur.fetchone()
+            conn.close()
+            if row:
+                return str(row[0] or "09:00"), str(row[1] or "")
+            return None
+        except Exception:
+            return None
+
     def kayit_ekle(self):
         """
         PIPELINE ENTEGRASYONU: Seans kaydı ekleme (SEANS TAKİP ANA KAYNAK)
         → seans_takvimi (ANA) → records → kasa_hareketleri → odeme_hareketleri → oda_doluluk
         
         ✅ SADELEŞTİRİLMİŞ: Sadece danışan, terapist, alınan ücret ve not manuel girilir.
-        Tarih, saat, hizmet bedeli ve oda otomatik belirlenir.
+        Tarih seçilir; saat otomatik atanır. Seans kaydı haftalık programdan bağımsızdır.
         """
         danisan = (self.cmb_danisan.get() or "").strip()
         terapist = (self.cmb_terapist.get() or "").strip()
@@ -2960,9 +3075,10 @@ class App(ttk.Window):
             messagebox.showwarning("Uyarı", "Lütfen terapist seçiniz!")
             return
 
-        # Saat haftalık programda; kayıtta varsayılan 09:00
+        # Seans kaydı haftalık programdan bağımsızdır
         tarih = self._tarih_db()
-        saat = "09:00"
+        saat = self._default_saat()
+        oda = ""
 
         # ✅ Hizmet bedeli kullanıcıdan alınmaz; Ücret Takibi fiyatlandırmasından otomatik gelir
         bedel = 0.0
@@ -3000,8 +3116,7 @@ class App(ttk.Window):
         # Not: Manuel girilir
         notlar_manuel = (self.ent_not.get() or "").strip()
         
-        # Oda seçimi kaldırıldı; kayıt oda olmadan yapılır
-        oda = ""
+        
 
         try:
             conn = self.veritabani_baglan()
@@ -3025,7 +3140,7 @@ class App(ttk.Window):
                 hizmet_bedeli=bedel,
                 alinan_ucret=alinan,
                 notlar=notlar,
-                oda="",
+                oda=oda,
                 check_oda_cakisma=False
             )
             
@@ -3350,52 +3465,44 @@ class App(ttk.Window):
         ent.bind("<Return>", lambda e: _save())
 
     def kayit_sil(self):
-        """
-        PIPELINE ENTEGRASYONU: Kayıt silme (ATOMIC TRANSACTION)
-        → DataPipeline.kayit_sil() ile tek transaction içinde cascade silme
-        """
-        seans_id = self._selected_id()  # Seçili satırdan ID al
-        if not seans_id:
+        """Seans kayıtlarında tekli/toplu silme modu (pipeline üzerinden atomik)."""
+        ids = self._selected_ids()
+        if not ids:
             messagebox.showwarning("Uyarı", "Lütfen bir kayıt seçiniz!")
             return
-        if not messagebox.askyesno("Onay", "Seçili kaydı silmek istiyor musunuz?\n\nİlgili tüm veriler (seans takvimi, records, ödemeler, kasa kayıtları) silinecektir!"):
+        mod = self._secim_modu_sor(len(ids), "seans kaydı")
+        if not mod:
             return
-        
+        hedef_ids = ids[:1] if mod == "tek" else ids
+        if not messagebox.askyesno("Onay", f"{len(hedef_ids)} kayıt silinsin mi?\n\nİlgili tüm veriler (seans takvimi, records, ödemeler, kasa kayıtları) silinecektir!"):
+            return
+
+        conn = None
         try:
             conn = self.veritabani_baglan()
             kullanici_id = self.kullanici[0] if self.kullanici else None
-            
-            # ✅ PIPELINE KULLAN (Tek transaction ile atomik cascade silme)
             pipeline = DataPipeline(conn, kullanici_id)
-            basarili = pipeline.kayit_sil(seans_id=seans_id)
-            
-            if basarili:
-                # Pipeline log'u konsola yaz (debugging için)
-                print(f"\n{'='*60}")
-                print(f"🗑️ KAYIT SİLME BAŞARILI | seans_id={seans_id}")
-                print(f"{'='*60}")
-                print(pipeline.get_log())
-                print(f"{'='*60}\n")
-                
-                messagebox.showinfo(
-                    "✅ Başarılı!", 
-                    f"Kayıt silindi!\n\n"
-                    f"• Seans ID: #{seans_id}\n"
-                    f"• Tüm bağlı kayıtlar cascade olarak silindi\n\n"
-                    f"Tüm tablolar otomatik senkronize edildi!"
-                )
-                
-                # Listeyi yenile + borç tablolarını yenile (Windows/macOS)
-                self.kayitlari_listele()
-                self._refresh_borc_tables()
-            else:
+            silinen = 0
+            for seans_id in hedef_ids:
+                if pipeline.kayit_sil(seans_id=seans_id):
+                    silinen += 1
+            if silinen <= 0:
                 messagebox.showerror("Hata", "Kayıt silinirken bir hata oluştu!")
-            
-            conn.close()
-            
+                return
+            messagebox.showinfo("✅ Başarılı!", f"{silinen} kayıt silindi.")
+            self.kayitlari_listele()
+            self._refresh_borc_tables()
+            self._refresh_open_reports()
         except Exception as e:
             messagebox.showerror("Hata", f"Silme hatası:\n{e}")
             log_exception("kayit_sil_pipeline", e)
+        finally:
+            try:
+                if conn is not None:
+                    conn.close()
+            except Exception:
+                pass
+
 
     # --- TAB 2: AYARLAR ---
     def _build_ucret_takibi_tab(self):
@@ -3403,6 +3510,13 @@ class App(ttk.Window):
         wrapper = ttk.Frame(self.tab_ucret_takibi, padding=10)
         wrapper.pack(fill=BOTH, expand=True)
         
+        ttk.Label(
+            wrapper,
+            text="Açıklama: Bu modül çocuk ve personel ücret/hakediş kayıtlarını yönetir.",
+            font=("Segoe UI", 9),
+            foreground="gray",
+        ).pack(anchor=W, pady=(0, 6))
+
         # Başlık
         head = ttk.Frame(wrapper)
         head.pack(fill=X, pady=(0, 10))
@@ -3481,17 +3595,11 @@ class App(ttk.Window):
         tree.tag_configure("even", background="#f8f9fa")
         tree.tag_configure("odd", background="#ffffff")
         
-        # Sağ tık menü - Fiyatlandırma güncelleme
-        def cocuk_ucret_menu(event):
-            sel = tree.selection()
-            if not sel:
-                return
-            menu = Menu(self, tearoff=0)
-            menu.add_command(label="💰 Fiyatlandırma Güncelle", command=lambda: self._fiyatlandirma_guncelle(parent, tree))
-            menu.add_command(label="📊 Detaylı Rapor", command=lambda: self._cocuk_detayli_rapor(parent, tree))
-            menu.post(event.x_root, event.y_root)
-        
-        tree.bind("<Button-2>", cocuk_ucret_menu)
+        action_row = ttk.Frame(parent)
+        action_row.pack(fill=X, pady=(8, 4))
+        ttk.Label(action_row, text="Seçili satır işlemleri:", font=("Segoe UI", 10, "bold")).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(action_row, text="💰 Fiyatlandırma Güncelle", bootstyle="warning-outline", command=lambda: self._fiyatlandirma_guncelle(parent, tree)).pack(side=LEFT, padx=4)
+        ttk.Button(action_row, text="📊 Detaylı Rapor", bootstyle="info-outline", command=lambda: self._cocuk_detayli_rapor(parent, tree)).pack(side=LEFT, padx=4)
         
         # Özet bilgiler
         summary_frame = ttk.Labelframe(parent, text="Özet", padding=10, bootstyle="secondary")
@@ -3519,12 +3627,10 @@ class App(ttk.Window):
         ttk.Button(toolbar, text="💸 Avans/Ödeme Ver", bootstyle="danger", command=self.popup_personel_avans).pack(side=LEFT, padx=5)
         ttk.Separator(toolbar, orient=VERTICAL).pack(side=LEFT, fill=Y, padx=10)
         
-        ttk.Button(toolbar, text="📝 Personel Ücret Talep Formu", bootstyle="success",
-                   command=self.personel_ucret_talep_formu).pack(side=LEFT, padx=5)
         ttk.Button(toolbar, text="💰 Ödeme Yap", bootstyle="warning",
                    command=self.personel_ucret_odeme_yap).pack(side=LEFT, padx=5)
         ttk.Button(toolbar, text="🔄 Yenile", bootstyle="secondary",
-                   command=lambda: self._personel_ucret_listele(parent)).pack(side=LEFT, padx=5)
+                   command=lambda: (self._personel_ucret_listele(parent), self._refresh_kasa_views())).pack(side=LEFT, padx=5)
         
         # Filtreler
         filter_frame = ttk.Frame(parent)
@@ -3919,17 +4025,22 @@ class App(ttk.Window):
             conn = self.veritabani_baglan()
             cur = conn.cursor()
             
+            has_put_seans = self._table_has_column(conn, "personel_ucret_takibi", "seans_id")
             where = []
             params = []
-            
+
+            if has_put_seans:
+                # seans silinmişse bağlı personel ücret kaydını listede göstermeyelim
+                where.append("(put.seans_id IS NULL OR st.id IS NOT NULL)")
+
             if personel_filtre:
                 where.append("put.personel_adi = ?")
                 params.append(personel_filtre)
-            
+
             if durum_filtre:
                 where.append("put.odeme_durumu = ?")
                 params.append(durum_filtre.lower())
-            
+
             sql = """
                 SELECT 
                     put.id,
@@ -3942,6 +4053,8 @@ class App(ttk.Window):
                     put.odeme_tarihi
                 FROM personel_ucret_takibi put
             """
+            if has_put_seans:
+                sql += " LEFT JOIN seans_takvimi st ON st.id = put.seans_id"
             if where:
                 sql += " WHERE " + " AND ".join(where)
             sql += " ORDER BY put.tarih DESC, put.id DESC"
@@ -4409,6 +4522,34 @@ class App(ttk.Window):
         
         ttk.Button(wrapper, text="✅ Talep Oluştur", bootstyle="success", command=kaydet).pack(pady=10)
     
+    def _refresh_personel_ucret_views(self):
+        """Açık Personel Ücret Takibi görünümlerini yenile."""
+        try:
+            if not hasattr(self, "tab_ucret_takibi"):
+                return
+            for child in self.tab_ucret_takibi.winfo_children():
+                if getattr(child, "_tree_personel", None):
+                    self._personel_ucret_listele(child)
+                for sub in child.winfo_children():
+                    if isinstance(sub, ttk.Notebook):
+                        for page_id in sub.tabs():
+                            page = sub.nametowidget(page_id)
+                            if hasattr(page, "_tree_personel"):
+                                self._personel_ucret_listele(page)
+        except Exception:
+            pass
+
+    def _refresh_kasa_views(self):
+        """Açık Kasa Defteri görünümlerini yenile."""
+        try:
+            if not hasattr(self, "tab_kasa"):
+                return
+            for child in self.tab_kasa.winfo_children():
+                if getattr(child, "_tree_kasa", None):
+                    self._kasa_rapor_yukle(child)
+        except Exception:
+            pass
+
     def personel_ucret_odeme_yap(self):
         """Personel ücret ödeme yapma penceresi"""
         win = ttk.Toplevel(self)
@@ -4470,20 +4611,36 @@ class App(ttk.Window):
             try:
                 conn = self.veritabani_baglan()
                 cur = conn.cursor()
-                cur.execute(
-                    """
-                    SELECT id, tarih, seans_ucreti, personel_ucreti
-                    FROM personel_ucret_takibi
-                    WHERE personel_adi = ? AND odeme_durumu = 'beklemede'
-                    ORDER BY tarih DESC
-                    """,
-                    (personel,)
-                )
+                has_put_seans = self._table_has_column(conn, "personel_ucret_takibi", "seans_id")
+                if has_put_seans:
+                    cur.execute(
+                        """
+                        SELECT put.id, put.tarih, put.seans_ucreti, put.personel_ucreti
+                        FROM personel_ucret_takibi put
+                        LEFT JOIN seans_takvimi st ON st.id = put.seans_id
+                        WHERE put.personel_adi = ?
+                          AND put.odeme_durumu = 'beklemede'
+                          AND (put.seans_id IS NULL OR st.id IS NOT NULL)
+                        ORDER BY put.tarih DESC
+                        """,
+                        (personel,)
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT id, tarih, seans_ucreti, personel_ucreti
+                        FROM personel_ucret_takibi
+                        WHERE personel_adi = ? AND odeme_durumu = 'beklemede'
+                        ORDER BY tarih DESC
+                        """,
+                        (personel,)
+                    )
                 rows = cur.fetchall()
                 conn.close()
                 
                 for row in rows:
-                    tree.insert("", END, values=row)
+                    rid, tarih, seans_ucreti, personel_ucreti = row
+                    tree.insert("", END, values=(int(rid), tarih, format_money(seans_ucreti), format_money(personel_ucreti)))
             except Exception as e:
                 messagebox.showerror("Hata", f"Liste yüklenemedi:\n{e}")
         
@@ -4496,13 +4653,21 @@ class App(ttk.Window):
                 messagebox.showwarning("Uyarı", "Lütfen ödeme yapılacak kaydı seçin.")
                 return
 
-            ucret_id = tree.item(secili[0])["values"][0]
+            vals = tree.item(secili[0]).get("values") or []
+            if not vals:
+                messagebox.showerror("Hata", "Seçili satır okunamadı.")
+                return
+            try:
+                ucret_id = int(vals[0])
+            except Exception:
+                messagebox.showerror("Hata", f"Geçersiz ücret ID: {vals[0]!r}")
+                return
             
             try:
                 conn = self.veritabani_baglan()
                 cur = conn.cursor()
-                
-                # Ücret bilgisini al
+
+                # Ücret bilgisini al (gösterim için)
                 cur.execute(
                     "SELECT personel_adi, personel_ucreti FROM personel_ucret_takibi WHERE id = ?",
                     (ucret_id,)
@@ -4512,48 +4677,28 @@ class App(ttk.Window):
                     messagebox.showerror("Hata", "Ücret kaydı bulunamadı.")
                     conn.close()
                     return
-                
+
                 personel_adi, tutar = row
-                
-                # Ödeme durumunu güncelle
-                cur.execute(
-                    """
-                    UPDATE personel_ucret_takibi
-                    SET odeme_durumu = 'odendi', odeme_tarihi = ?
-                    WHERE id = ?
-                    """,
-                    (datetime.datetime.now().strftime("%Y-%m-%d"), ucret_id)
-                )
-                
-                # ✅ FINANSAL ZEKA: Pipeline üzerinden otomatik kasa gider kaydı
+
+                # Tek transaction kaynağı: pipeline (put + kasa birlikte)
                 kullanici_id = self.kullanici[0] if self.kullanici else None
                 pipeline = DataPipeline(conn, kullanici_id)
-                pipeline.personel_ucret_odeme_kasa_entegrasyonu(
+                ok = pipeline.personel_ucret_odeme_kasa_entegrasyonu(
                     personel_adi=personel_adi,
                     tutar=tutar,
-                    ucret_takibi_id=ucret_id
+                    ucret_takibi_id=ucret_id,
                 )
-
-                conn.commit()
                 conn.close()
-                
+
+                if not ok:
+                    messagebox.showerror("Hata", "Ödeme işlemi kaydedilemedi.")
+                    return
+
                 messagebox.showinfo("Başarılı", f"Personel ücret ödemesi yapıldı!\n\n{personel_adi}: {format_money(tutar)}")
-                
+
                 yukle_liste()
-                
-                # Ücret takibi sayfasını yenile
-                try:
-                    if hasattr(self, 'tab_ucret_takibi'):
-                        for child in self.tab_ucret_takibi.winfo_children():
-                            if isinstance(child, ttk.Frame):
-                                for subchild in child.winfo_children():
-                                    if isinstance(subchild, ttk.Notebook):
-                                        for page_id in subchild.tabs():
-                                            page = subchild.nametowidget(page_id)
-                                            if hasattr(page, '_tree_personel'):
-                                                self._personel_ucret_listele(page)
-                except Exception:
-                    pass
+                self._refresh_personel_ucret_views()
+                self._refresh_kasa_views()
             except Exception as e:
                 messagebox.showerror("Hata", f"Ödeme yapılamadı:\n{e}")
                 log_exception("personel_ucret_odeme_yap", e)
@@ -4565,6 +4710,13 @@ class App(ttk.Window):
         wrapper = ttk.Frame(self.tab_cocuk_gunluk, padding=10)
         wrapper.pack(fill=BOTH, expand=True)
         
+        ttk.Label(
+            wrapper,
+            text="Açıklama: Çocuk günlük operasyon kayıtlarını tarih/oda/personel bazında listeler.",
+            font=("Segoe UI", 9),
+            foreground="gray",
+        ).pack(anchor=W, pady=(0, 6))
+
         # Başlık
         head = ttk.Frame(wrapper)
         head.pack(fill=X, pady=(0, 10))
@@ -4725,6 +4877,13 @@ class App(ttk.Window):
         wrapper = ttk.Frame(self.tab_kasa, padding=10)
         wrapper.pack(fill=BOTH, expand=True)
         
+        ttk.Label(
+            wrapper,
+            text="Açıklama: Bu modül kasa giriş/çıkış hareketlerini dönemsel raporlar.",
+            font=("Segoe UI", 9),
+            foreground="gray",
+        ).pack(anchor=W, pady=(0, 6))
+
         # Başlık
         head = ttk.Frame(wrapper)
         head.pack(fill=X, pady=(0, 10))
@@ -4737,29 +4896,30 @@ class App(ttk.Window):
         report_frame.pack(fill=X, pady=(0, 10))
         
         report_type = ttk.StringVar(value="gunluk")
-        ttk.Radiobutton(report_frame, text="📅 Günlük", variable=report_type, value="gunluk",
-                       command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=10)
-        ttk.Radiobutton(report_frame, text="📆 Haftalık", variable=report_type, value="haftalik",
-                       command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=10)
-        ttk.Radiobutton(report_frame, text="📊 Aylık", variable=report_type, value="aylik",
-                       command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=10)
-        ttk.Radiobutton(report_frame, text="📋 Bütün veriler", variable=report_type, value="tumu",
-                       command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=10)
-        
-        # Tarih seçimi
+        rf = ttk.Frame(report_frame)
+        rf.pack(fill=X)
+        ttk.Radiobutton(rf, text="📅 Günlük", variable=report_type, value="gunluk", command=lambda: self._kasa_rapor_yukle(wrapper)).grid(row=0, column=0, padx=6, pady=2, sticky=W)
+        ttk.Radiobutton(rf, text="📆 Haftalık", variable=report_type, value="haftalik", command=lambda: self._kasa_rapor_yukle(wrapper)).grid(row=0, column=1, padx=6, pady=2, sticky=W)
+        ttk.Radiobutton(rf, text="📊 Aylık", variable=report_type, value="aylik", command=lambda: self._kasa_rapor_yukle(wrapper)).grid(row=1, column=0, padx=6, pady=2, sticky=W)
+        ttk.Radiobutton(rf, text="📋 Bütün veriler", variable=report_type, value="tumu", command=lambda: self._kasa_rapor_yukle(wrapper)).grid(row=1, column=1, padx=6, pady=2, sticky=W)
+
+        # Tarih seçimi (kompakt 2 satır)
         date_frame = ttk.Frame(wrapper)
         date_frame.pack(fill=X, pady=(0, 10))
-        
-        ttk.Label(date_frame, text="Tarih:").pack(side=LEFT, padx=5)
-        ent_tarih = ttk.Entry(date_frame, width=15)
+
+        top_btn = ttk.Frame(date_frame)
+        top_btn.pack(fill=X, pady=(0, 4))
+        ttk.Label(top_btn, text="Tarih:").pack(side=LEFT, padx=4)
+        ent_tarih = ttk.Entry(top_btn, width=14)
         ent_tarih.insert(0, datetime.datetime.now().strftime("%Y-%m-%d"))
-        ent_tarih.pack(side=LEFT, padx=5)
-        
-        ttk.Button(date_frame, text="🔄 Raporu Göster", bootstyle="primary",
-                   command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=5)
-        ttk.Button(date_frame, text="📊 Rapor Hazırla (Excel)", bootstyle="success",
-                   command=lambda: self._kasa_rapor_hazirla_excel(wrapper)).pack(side=LEFT, padx=5)
-        ttk.Button(date_frame,text="🗑️ Seçiliyi Sil",bootstyle="danger",command=self.safe_call(lambda: self._kasa_secili_sil(parent=wrapper), "kasa_secili_sil")).pack(side=LEFT, padx=10)
+        ent_tarih.pack(side=LEFT, padx=4)
+        ttk.Button(top_btn, text="🔄 Göster", bootstyle="primary", width=12, command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=4)
+        ttk.Button(top_btn, text="↻ Yenile", bootstyle="secondary", width=10, command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=4)
+
+        bot_btn = ttk.Frame(date_frame)
+        bot_btn.pack(fill=X)
+        ttk.Button(bot_btn, text="📊 Excel", bootstyle="success", width=12, command=lambda: self._kasa_rapor_hazirla_excel(wrapper)).pack(side=LEFT, padx=4)
+        ttk.Button(bot_btn, text="🗑️ Seçiliyi Sil", bootstyle="danger", width=14, command=self.safe_call(lambda: self._kasa_secili_sil(parent=wrapper), "kasa_secili_sil")).pack(side=LEFT, padx=4)
 
         
         # Özet bilgiler
@@ -5106,128 +5266,8 @@ class App(ttk.Window):
             log_exception("_kasa_rapor_hazirla_excel", e)
     
     def _build_bep_tab(self):
-        """BEP (Bireysel Eğitim Programı) Tab"""
-        wrapper = ttk.Frame(self.tab_bep, padding=10)
-        wrapper.pack(fill=BOTH, expand=True)
-        
-        # Başlık
-        head = ttk.Frame(wrapper)
-        head.pack(fill=X, pady=(0, 10))
-        if getattr(self, "_logo_small", None):
-            ttk.Label(head, image=self._logo_small).pack(side=LEFT, padx=(0, 10))
-        ttk.Label(head, text="BİREYSEL EĞİTİM PROGRAMI (BEP)", font=("Segoe UI", 16, "bold"), bootstyle="primary").pack(side=LEFT)
-        
-        # Üst toolbar
-        toolbar = ttk.Frame(wrapper)
-        toolbar.pack(fill=X, pady=(0, 10))
-        
-        ttk.Label(toolbar, text="Çocuk Seç:").pack(side=LEFT, padx=5)
-        cmb_cocuk = ttk.Combobox(toolbar, state="readonly", width=30)
-        cmb_cocuk.pack(side=LEFT, padx=5)
-        
-        # Çocuk listesi
-        try:
-            conn = self.veritabani_baglan()
-            cur = conn.cursor()
-            cur.execute("SELECT id, ad_soyad FROM danisanlar WHERE aktif=1 ORDER BY ad_soyad")
-            cocuk_listesi = [(row[0], row[1]) for row in cur.fetchall()]
-            conn.close()
-            cmb_cocuk["values"] = [f"{c[1]} (ID: {c[0]})" for c in cocuk_listesi]
-            if cocuk_listesi:
-                cmb_cocuk.current(0)
-        except Exception:
-            cmb_cocuk["values"] = []
-        
-        ttk.Label(toolbar, text="Yıl:").pack(side=LEFT, padx=(20, 5))
-        cmb_yil = ttk.Combobox(toolbar, state="readonly", width=10)
-        yil_listesi = [str(datetime.datetime.now().year + i) for i in range(-2, 3)]
-        cmb_yil["values"] = yil_listesi
-        cmb_yil.set(str(datetime.datetime.now().year))
-        cmb_yil.pack(side=LEFT, padx=5)
-        
-        ttk.Button(toolbar, text="📋 BEP Oluştur/Güncelle", bootstyle="success",
-                   command=lambda: self._bep_olustur_guncelle(wrapper)).pack(side=LEFT, padx=10)
-        ttk.Button(toolbar, text="🔄 Yükle", bootstyle="primary",
-                   command=lambda: self._bep_yukle(wrapper)).pack(side=LEFT, padx=5)
-        ttk.Button(toolbar, text="📊 Rapor Oluştur", bootstyle="info",
-                   command=lambda: self._bep_rapor_olustur(cmb_cocuk, cmb_yil)).pack(side=LEFT, padx=5)
-        
-        # BEP görüntüleme alanı
-        bep_frame = ttk.Labelframe(wrapper, text="BEP Programı", padding=10, bootstyle="secondary")
-        bep_frame.pack(fill=BOTH, expand=True)
-        
-        # BEP tablosu (12 ay x hedef beceriler)
-        canvas_frame = ttk.Frame(bep_frame)
-        canvas_frame.pack(fill=BOTH, expand=True)
-        
-        # Scrollable canvas
-        canvas = tk.Canvas(canvas_frame, bg="white")
-        scrollbar = ttk.Scrollbar(canvas_frame, orient=VERTICAL, command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-        
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        canvas.pack(side=LEFT, fill=BOTH, expand=True)
-        scrollbar.pack(side=RIGHT, fill=Y)
-        
-        # BEP hedef becerileri (resimdeki gibi)
-        HEDEF_BECERILER = [
-            "Erken Okur Yazarlık Becerisi",
-            "Yazı Farkındalığı",
-            "Hece Bilgisi",
-            "Uyak Farkındalığı",
-            "Sesbilişsel Farkındalık",
-            "İnce Motor Becerileri",
-            "İşitsel ve Görsel Algı Dikkat",
-            "Neden Sonuç İlişkisi",
-            "Muhakeme Tahmin Etme"
-        ]
-        
-        AYLAR = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
-                "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
-        
-        # Tablo başlıkları
-        header_frame = ttk.Frame(scrollable_frame)
-        header_frame.pack(fill=X, pady=(0, 5))
-        
-        ttk.Label(header_frame, text="Hedef Beceriler", font=("Segoe UI", 10, "bold"), width=40, anchor="w").pack(side=LEFT, padx=2)
-        for ay in AYLAR:
-            ttk.Label(header_frame, text=ay[:3], font=("Segoe UI", 9, "bold"), width=12, anchor="center").pack(side=LEFT, padx=1)
-        
-        # BEP tablosu
-        bep_table = {}
-        for beceri in HEDEF_BECERILER:
-            row_frame = ttk.Frame(scrollable_frame)
-            row_frame.pack(fill=X, pady=2)
-            
-            ttk.Label(row_frame, text=beceri, font=("Segoe UI", 9), width=40, anchor="w").pack(side=LEFT, padx=2)
-            
-            ay_widgets = []
-            for ay_idx in range(12):
-                var = ttk.StringVar(value="")
-                cmb = ttk.Combobox(row_frame, textvariable=var, state="readonly", width=12,
-                                 values=["", "Planlandı", "Devam Ediyor", "Tamamlandı"])
-                cmb.pack(side=LEFT, padx=1)
-                ay_widgets.append((var, cmb))
-            
-            bep_table[beceri] = ay_widgets
-        
-        # Widget'ları kaydet
-        wrapper._cmb_cocuk = cmb_cocuk
-        wrapper._cmb_yil = cmb_yil
-        wrapper._bep_table = bep_table
-        wrapper._canvas = canvas
-        wrapper._scrollable_frame = scrollable_frame
-        
-        # İlk yükleme
-        self._bep_yukle(wrapper)
-    
+        """Bu modül kaldırıldı."""
+        messagebox.showinfo("Bilgi", "Bu modül bu sürümde kaldırılmıştır.")
 
     def _kasa_manual_entry_popup(self, parent_wrapper=None):
         """Kasa defterine manuel gelir/gider ekleme penceresi."""
@@ -5509,6 +5549,13 @@ class App(ttk.Window):
         wrapper = ttk.Frame(self.tab_haftalik, padding=10)
         wrapper.pack(fill=BOTH, expand=True)
         
+        ttk.Label(
+            wrapper,
+            text="Açıklama: Haftalık seans planını personel bazında kaydedip dışa aktarır.",
+            font=("Segoe UI", 9),
+            foreground="gray",
+        ).pack(anchor=W, pady=(0, 6))
+
         # Başlık
         head = ttk.Frame(wrapper)
         head.pack(fill=X, pady=(0, 10))
@@ -5550,18 +5597,12 @@ class App(ttk.Window):
         ent_hafta.insert(0, monday.strftime("%Y-%m-%d"))
         ent_hafta.pack(side=LEFT, padx=5)
         
-        ttk.Button(filter_frame, text="📅 Hafta Seç", bootstyle="secondary",
-                   command=lambda: self._hafta_sec(ent_hafta)).pack(side=LEFT, padx=5)
-        ttk.Button(filter_frame, text="🔄 Yükle", bootstyle="primary",
-                   command=lambda: self._haftalik_program_yukle(wrapper)).pack(side=LEFT, padx=10)
         ttk.Button(filter_frame, text="💾 Kaydet", bootstyle="success",
-                   command=lambda: self._haftalik_program_kaydet(wrapper)).pack(side=LEFT, padx=5)
+                   command=lambda: self._haftalik_program_kaydet(wrapper)).pack(side=LEFT, padx=10)
+        ttk.Button(filter_frame, text="📤 Excel'e Aktar", bootstyle="info",
+                   command=lambda: self._haftalik_program_excel_aktar(wrapper)).pack(side=LEFT, padx=5)
         
-        # ✅ OTOMASYON 2: Personel seçildiğinde otomatik program yükle
-        def _otomatik_yukle(event=None):
-            if cmb_personel.get():
-                self._haftalik_program_yukle(wrapper)
-        cmb_personel.bind("<<ComboboxSelected>>", _otomatik_yukle)
+        # Personel seçimi kaydetme/dışa aktarma filtrelerinde kullanılır
         
         # Haftalık program tablosu
         program_frame = ttk.Labelframe(wrapper, text="Haftalık Program", padding=10, bootstyle="secondary")
@@ -5622,8 +5663,7 @@ class App(ttk.Window):
         wrapper._canvas = canvas
         wrapper._scrollable_frame = scrollable_frame
         
-        # İlk yükleme
-        self._haftalik_program_yukle(wrapper)
+        # İlk yükleme yapılmaz; kullanıcı kaydetme ve dışa aktarma akışını kullanır.
     
     def _hafta_sec(self, ent_hafta):
         """Hafta seçimi için takvim penceresi"""
@@ -5654,6 +5694,59 @@ class App(ttk.Window):
         
         ttk.Button(win, text="Seç", bootstyle="primary", command=sec).pack(pady=10)
     
+    def _haftalik_program_excel_aktar(self, parent):
+        """Seçili personel ve hafta için haftalık programı Excel'e aktarır."""
+        cmb_personel = parent._cmb_personel
+        ent_hafta = parent._ent_hafta
+
+        personel = (cmb_personel.get() or "").strip()
+        hafta = self._normalize_hafta_tarihi((ent_hafta.get() or "").strip())
+        if not personel or not hafta:
+            messagebox.showwarning("Uyarı", "Lütfen personel ve hafta girin.")
+            return
+
+        try:
+            conn = self.veritabani_baglan()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT gun, saat, COALESCE(ogrenci_adi,''), COALESCE(notlar,'')
+                FROM haftalik_seans_programi
+                WHERE personel_adi=? AND hafta_baslangic_tarihi=?
+                ORDER BY CASE gun
+                    WHEN 'Pazartesi' THEN 1 WHEN 'Salı' THEN 2 WHEN 'Çarşamba' THEN 3
+                    WHEN 'Perşembe' THEN 4 WHEN 'Cuma' THEN 5 WHEN 'Cumartesi' THEN 6 WHEN 'Pazar' THEN 7
+                    ELSE 99 END,
+                    saat
+                """,
+                (personel, hafta),
+            )
+            rows = cur.fetchall()
+            conn.close()
+        except Exception as e:
+            messagebox.showerror("Hata", f"Program okunamadı\n{e}")
+            return
+
+        path = filedialog.asksaveasfilename(
+            title="Haftalık Programı Excel'e Aktar",
+            defaultextension=".xlsx",
+            initialfile=f"haftalik_program_{personel.replace(' ', '_')}_{hafta}.xlsx",
+            filetypes=[("Excel", "*.xlsx")],
+        )
+        if not path:
+            return
+
+        try:
+            df = pd.DataFrame(rows, columns=["Gün", "Saat", "Öğrenci", "Notlar"])
+            df.insert(0, "Personel", personel)
+            df.insert(1, "Hafta", hafta)
+            with pd.ExcelWriter(path, engine="openpyxl") as writer:
+                df.to_excel(writer, index=False, sheet_name="Haftalık Program")
+            messagebox.showinfo("Başarılı", "Haftalık program Excel'e aktarıldı.")
+        except Exception as e:
+            messagebox.showerror("Hata", f"Excel aktarımı başarısız\n{e}")
+            log_exception("_haftalik_program_excel_aktar", e)
+
     def _normalize_hafta_tarihi(self, raw: str) -> str:
         """Hafta başlangıç tarihini YYYY-MM-DD formatına çevirir. Veritabanı hep bu formatta tutulur."""
         if not raw or not isinstance(raw, str):
@@ -5874,6 +5967,13 @@ class App(ttk.Window):
         # Seans ekleme sonrası borç tablosunu yenilemek için sakla
         self._ogrenci_bilgileri_wrapper = wrapper
         
+        ttk.Label(
+            wrapper,
+            text="Açıklama: Danışan kayıtları, iletişim bilgileri ve durum yönetimi burada tutulur.",
+            font=("Segoe UI", 9),
+            foreground="gray",
+        ).pack(anchor=W, pady=(0, 6))
+
         # Başlık
         head = ttk.Frame(wrapper)
         head.pack(fill=X, pady=(0, 10))
@@ -5929,19 +6029,13 @@ class App(ttk.Window):
         tree_danisanlar.configure(yscroll=sb_danisanlar.set)
         sb_danisanlar.pack(side=RIGHT, fill=Y)
         
-        # Sağ tık menü
-        def danisan_menu(event):
-            sel = tree_danisanlar.selection()
-            if not sel:
-                return
-            menu = Menu(self, tearoff=0)
-            menu.add_command(label="✏️ Düzenle", command=lambda: self._danisan_duzenle_from_tree(tree_danisanlar))
-            menu.add_command(label="💰 Fiyatlandırma", command=lambda: self._danisan_fiyatlandirma(tree_danisanlar))
-            menu.add_command(label="📊 Detaylı Bilgi", command=lambda: self._danisan_detayli_bilgi(tree_danisanlar))
-            menu.add_command(label="🗑️ Aktif/Pasif", command=lambda: self._danisan_aktif_pasif_from_tree(tree_danisanlar))
-            menu.post(event.x_root, event.y_root)
-        
-        tree_danisanlar.bind("<Button-2>", danisan_menu)
+        danisan_actions = ttk.Frame(wrapper)
+        danisan_actions.pack(fill=X, pady=(6, 4))
+        ttk.Label(danisan_actions, text="Seçili öğrenci işlemleri:", font=("Segoe UI", 10, "bold")).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(danisan_actions, text="✏️ Düzenle", bootstyle="secondary-outline", command=lambda: self._danisan_duzenle_from_tree(tree_danisanlar)).pack(side=LEFT, padx=4)
+        ttk.Button(danisan_actions, text="📊 Detaylı Bilgi", bootstyle="info-outline", command=lambda: self._danisan_detayli_bilgi(tree_danisanlar)).pack(side=LEFT, padx=4)
+        ttk.Button(danisan_actions, text="🔁 Aktif/Pasif", bootstyle="warning-outline", command=lambda: self._danisan_aktif_pasif_from_tree(tree_danisanlar)).pack(side=LEFT, padx=4)
+        ttk.Button(danisan_actions, text="🗑️ Danışanı Sil (Kalıcı)", bootstyle="danger-outline", command=lambda: self._danisan_sil_from_tree(tree_danisanlar)).pack(side=LEFT, padx=4)
         
         wrapper._tree_danisanlar = tree_danisanlar
         self.tab_ogrenci_bilgileri.danisan_tree = tree_danisanlar
@@ -5950,15 +6044,7 @@ class App(ttk.Window):
         # İlk yükleme
         self._tum_danisanlari_listele(wrapper)
         
-        # ✅ DÜZELTME: Aile Bilgileri tablosu kaldırıldı (veli adı zaten üstte gösteriliyor)
-        # Notebook - Sadece Kimlik Bilgileri sayfası
-        nb_ogrenci = ttk.Notebook(wrapper)
-        nb_ogrenci.pack(fill=BOTH, expand=True, pady=(10, 0))
-        
-        # Sayfa 1: Kimlik Bilgileri (Aile Bilgileri kaldırıldı)
-        page_kimlik = ttk.Frame(nb_ogrenci, padding=10)
-        nb_ogrenci.add(page_kimlik, text="🆔 Kimlik Bilgileri")
-        self._build_ogrenci_kimlik_page(page_kimlik)
+        # Kimlik bilgileri bölümü kaldırıldı (talep doğrultusunda)
         
     
     def _build_ogrenci_aile_page(self, parent):
@@ -6015,17 +6101,11 @@ class App(ttk.Window):
         tree.configure(yscroll=sb.set)
         sb.pack(side=RIGHT, fill=Y)
         
-        # Sağ tık menü
-        def veli_menu(event):
-            sel = tree.selection()
-            if not sel:
-                return
-            menu = Menu(self, tearoff=0)
-            menu.add_command(label="✏️ Düzenle", command=lambda: self._veli_duzenle(parent, tree))
-            menu.add_command(label="🗑️ Sil", command=lambda: self._veli_sil(parent, tree))
-            menu.post(event.x_root, event.y_root)
-        
-        tree.bind("<Button-2>", veli_menu)
+        veli_actions = ttk.Frame(parent)
+        veli_actions.pack(fill=X, pady=(8, 4))
+        ttk.Label(veli_actions, text="Seçili veli işlemleri:", font=("Segoe UI", 10, "bold")).pack(side=LEFT, padx=(0, 8))
+        ttk.Button(veli_actions, text="✏️ Düzenle", bootstyle="secondary-outline", command=lambda: self._veli_duzenle(parent, tree)).pack(side=LEFT, padx=4)
+        ttk.Button(veli_actions, text="🗑️ Sil", bootstyle="danger-outline", command=lambda: self._veli_sil(parent, tree)).pack(side=LEFT, padx=4)
         
         parent._tree_aile = tree
         parent._cmb_ogrenci = cmb_ogrenci
@@ -6721,39 +6801,82 @@ class App(ttk.Window):
             log_exception("_danisan_detayli_bilgi", e)
     
     def _danisan_aktif_pasif_from_tree(self, tree):
-        """Tree'den seçilen danışanı aktif/pasif yap"""
+        """Seçili danışanın aktif/pasif durumunu değiştir."""
         sel = tree.selection()
         if not sel:
             return
-        danisan_id = tree.item(sel[0])["values"][0]
-        danisan_adi = tree.item(sel[0])["values"][1]
-        mevcut_durum = tree.item(sel[0])["values"][8]
-        yeni_durum = 0 if mevcut_durum == "Aktif" else 1
-        
-        if not messagebox.askyesno("Onay", f"{danisan_adi} danışanını {'pasif' if yeni_durum == 0 else 'aktif'} yapmak istediğinize emin misiniz?"):
+        vals = tree.item(sel[0]).get("values") or []
+        if len(vals) < 8:
+            messagebox.showerror("Hata", "Seçili satır bilgisi okunamadı.")
             return
-        
+
+        danisan_id = vals[0]
+        danisan_adi = vals[1]
+        mevcut_durum = str(vals[7] or "").strip().lower()
+        yeni_aktif = 0 if mevcut_durum == "aktif" else 1
+
+        if not messagebox.askyesno(
+            "Onay",
+            f"{danisan_adi} için durum {'Aktif' if yeni_aktif else 'Pasif'} yapılsın mı?",
+        ):
+            return
+
         try:
             conn = self.veritabani_baglan()
             cur = conn.cursor()
-            # ✅ ENTERPRISE: Pipeline üzerinden güncelle (audit trail)
-            kullanici_id = self.kullanici[0] if self.kullanici else None
-            pipeline = DataPipeline(conn, kullanici_id)
-            basarili = pipeline.danisan_durum_guncelle(danisan_id, yeni_durum == 1)
+            cur.execute("UPDATE danisanlar SET aktif=? WHERE id=?", (yeni_aktif, danisan_id))
+            conn.commit()
             conn.close()
-            
-            if not basarili:
-                messagebox.showerror("Hata", "Danışan durumu güncellenemedi!")
-                return
-            
-            messagebox.showinfo("Başarılı", f"{danisan_adi} danışanı {'pasif' if yeni_durum == 0 else 'aktif'} yapıldı.")
-            # Listeyi yenile
-            parent = tree.master.master  # wrapper'a ulaş
+
+            messagebox.showinfo("Başarılı", f"{danisan_adi} durumu {'Aktif' if yeni_aktif else 'Pasif'} olarak güncellendi.")
+            parent = tree.master.master
             self._tum_danisanlari_listele(parent)
         except Exception as e:
             messagebox.showerror("Hata", f"Durum güncellenemedi:\n{e}")
             log_exception("_danisan_aktif_pasif_from_tree", e)
-    
+
+    def _danisan_sil_from_tree(self, tree):
+        """Seçili danışanı veritabanından kalıcı olarak sil."""
+        sel = tree.selection()
+        if not sel:
+            return
+        vals = tree.item(sel[0]).get("values") or []
+        if len(vals) < 2:
+            messagebox.showerror("Hata", "Seçili satır bilgisi okunamadı.")
+            return
+
+        danisan_id = vals[0]
+        danisan_adi = vals[1]
+
+        if not messagebox.askyesno(
+            "Kalıcı Silme Onayı",
+            f"{danisan_adi} danışanı veritabanından KALICI olarak silinsin mi?\n\n"
+            "Bu işlem geri alınamaz.",
+        ):
+            return
+
+        try:
+            conn = self.veritabani_baglan()
+            cur = conn.cursor()
+            cur.execute("DELETE FROM danisanlar WHERE id=?", (danisan_id,))
+            conn.commit()
+            conn.close()
+
+            messagebox.showinfo("Başarılı", f"{danisan_adi} danışanı kalıcı olarak silindi.")
+            parent = tree.master.master
+            self._tum_danisanlari_listele(parent)
+            self._refresh_borc_tables()
+        except sqlite3.IntegrityError:
+            messagebox.showerror(
+                "Silme Engellendi",
+                "Danışana bağlı kayıtlar bulunduğu için doğrudan silinemedi.\n"
+                "Önce bağlı seans/ödeme kayıtlarını temizleyin.",
+            )
+        except Exception as e:
+            messagebox.showerror("Hata", f"Danışan silinemedi:\n{e}")
+            log_exception("_danisan_sil_from_tree", e)
+
+
     # ==================== RAPOR OLUŞTURMA FONKSİYONLARI ====================
     
     def _bep_rapor_olustur(self, cmb_cocuk, cmb_yil):
@@ -7562,7 +7685,11 @@ class App(ttk.Window):
         
         sifre_id = tree.item(sel[0])["values"][0]
         
-        if not messagebox.askyesno("Onay", "Şifre kaydını silmek istediğinize emin misiniz?"):
+        if not messagebox.askyesno(
+            "Onay",
+            f"{danisan_adi} danışanını listeden kaldırmak istediğinize emin misiniz?\n\n"
+            "Bu işlem danışanı pasife alır (aktif=0).",
+        ):
             return
         
         try:
@@ -7646,12 +7773,12 @@ class App(ttk.Window):
         ttk.Button(right, text="Seçiliyi Sil", bootstyle="danger", command=self.terapist_sil).pack(fill=X, pady=(0, 6))
         ttk.Button(right, text="Excel'e Aktar", bootstyle="primary", command=self.excel_aktar).pack(fill=X, pady=(0, 12))
         
-        # ✅ VERİ İÇE AKTAR: AYARLAR sekmesine de ekle (Kurum Müdürü için)
+        # Kurum müdürü için bu bölüm sadece logo yükleme olarak sadeleştirildi
         if self.kullanici_yetki == "kurum_muduru":
             ttk.Separator(right, orient=HORIZONTAL).pack(fill=X, pady=(0, 12))
-            ttk.Label(right, text="Veri Yönetimi", font=("Segoe UI", 10, "bold")).pack(anchor=W, pady=(0, 6))
-            ttk.Button(right, text="🔄 Veri İçe Aktar", bootstyle="info", command=self.eski_veri_migration, width=28).pack(fill=X, pady=(0, 6))
-            ttk.Label(right, text="Eski verileri Excel template ile yükle", font=("Segoe UI", 8), foreground="gray", wraplength=200).pack(anchor=W, pady=(0, 12))
+            ttk.Label(right, text="Kurum Görseli", font=("Segoe UI", 10, "bold")).pack(anchor=W, pady=(0, 6))
+            ttk.Button(right, text="🖼️ Logo Yükle/Değiştir", bootstyle="info", command=self.logo_yukle_degistir, width=28).pack(fill=X, pady=(0, 6))
+            ttk.Label(right, text="Ayarlar içinden sadece logo yönetimi yapılır.", font=("Segoe UI", 8), foreground="gray", wraplength=200).pack(anchor=W, pady=(0, 12))
 
         self.lst.bind("<<TreeviewSelect>>", self._on_terapist_select)
         
@@ -7907,7 +8034,11 @@ class App(ttk.Window):
         name = (self.lst.item(sel[0]).get("values") or [""])[0]
         if not name:
             return
-        if not messagebox.askyesno("Onay", f"'{name}' terapistini silmek istiyor musunuz?"):
+        if not messagebox.askyesno(
+            "Onay",
+            f"{danisan_adi} danışanını listeden kaldırmak istediğinize emin misiniz?\n\n"
+            "Bu işlem danışanı pasife alır (aktif=0).",
+        ):
             return
         try:
             conn = self.veritabani_baglan()
@@ -7969,7 +8100,7 @@ class App(ttk.Window):
         """Eskiye dönük borç (devir bakiyesi) ekler. Kurum para takibi için kayıt sisteme işlenir."""
         win = ttk.Toplevel(self)
         win.title("Eski Borç / Devir Bakiyesi Ekle")
-        center_window(win, 400, 250)
+        center_window_smart(win, 460, 320, min_w=420, min_h=300)
         
         ttk.Label(win, text="Öğrenci Seç:", font=("Segoe UI", 10, "bold")).pack(pady=5)
         values = []
@@ -8020,7 +8151,7 @@ class App(ttk.Window):
         """Toplu ödeme alma penceresi"""
         win = ttk.Toplevel(self)
         win.title("Toplu Ödeme Al")
-        center_window(win, 400, 300)
+        center_window_smart(win, 460, 360, min_w=420, min_h=330)
         
         ttk.Label(win, text="Öğrenci Seç:", font=("Segoe UI", 10, "bold")).pack(pady=5)
         
@@ -8054,7 +8185,9 @@ class App(ttk.Window):
             try:
                 conn = self.veritabani_baglan()
                 pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
-                pipeline.toplu_odeme_al(danisan, tutar, aciklama=e_aciklama.get())
+                basarili = pipeline.toplu_odeme_al(danisan, tutar, aciklama=e_aciklama.get())
+                if not basarili:
+                    raise ValueError("Toplu ödeme kaydı oluşturulamadı.")
                 messagebox.showinfo("Başarılı", f"{tutar} TL tahsilat alındı.\nKasa defterine işlendi ve bakiyeden düşüldü.")
                 win.destroy()
                 self.kayitlari_listele()
@@ -8506,7 +8639,7 @@ class App(ttk.Window):
                                 hizmet_bedeli=bedel,
                                 alinan_ucret=alinan,
                                 notlar=notlar,
-                                oda="",
+                                oda=oda,
                                 check_oda_cakisma=False,
                                 skip_pricing_update=True,  # Tarihsel veri; güncel fiyatlar ayrı verilecek
                                 ensure_danisan=False,  # Eski veri importunda danışanlar listesi şişmesin
@@ -8677,18 +8810,15 @@ class App(ttk.Window):
         try:
             ensure_user_guide_present()
             candidates = [
-                os.path.join(resource_dir(), "KULLANIM_KILAVUZU.txt"),
-                os.path.join(app_dir(), "KULLANIM_KILAVUZU.txt"),
-                os.path.join(data_dir(), "KULLANIM_KILAVUZU.txt"),
+                str(data_dir() / "KULLANIM_KILAVUZU.txt"),
+                str(app_dir() / "KULLANIM_KILAVUZU.txt"),
+                str(app_dir() / "script" / "assets" / "KULLANIM_KILAVUZU.txt"),
+                str(assets_dir() / "KULLANIM_KILAVUZU.txt"),
             ]
-            p = None
-            for c in candidates:
-                if os.path.exists(c):
-                    p = c
-                    break
-            if not p:
-                raise FileNotFoundError("KULLANIM_KILAVUZU.txt bulunamadı.")
-            open_path(p)
+            found = next((c for c in candidates if os.path.exists(c)), None)
+            if not found:
+                raise FileNotFoundError(f"Kılavuz bulunamadı. Beklenen yer: {data_dir()}")
+            open_path(found)
         except Exception as e:
             messagebox.showerror("Hata", f"Kılavuz açılamadı:\n{e}")
 
@@ -8698,7 +8828,7 @@ class App(ttk.Window):
             "1) İlk gün: 'İLK KURULUM' ile Kurum Müdürü oluştur.\n"
             "2) Çalışanlar: 'KAYIT OL' ile hesap açar.\n"
             "3) SEANS TAKİP: Seansı yaz → KAYDET.\n"
-            "4) Tahsilat: Seansı seç → sağ tık → Ödeme Ekle.\n"
+            "4) Tahsilat: Seansı seç → '💰 Ödeme Ekle' butonuna bas.\n"
             "5) Haftalık durum: Muhasebe → Haftalık Ders/Ücret Takip.\n",
         )
 
@@ -8706,7 +8836,7 @@ class App(ttk.Window):
         messagebox.showinfo("Bilgi", "Ücret takibi ana ekranda (SEANS TAKİP) listelenmektedir.")
 
     def odeme_islemleri(self):
-        messagebox.showinfo("Bilgi", "Ödeme eklemek için listede kayda sağ tıklayıp 'Ödeme Ekle' seçeneğini kullanabilirsiniz.")
+        messagebox.showinfo("Bilgi", "Ödeme eklemek için listeden kaydı seçip '💰 Ödeme Ekle' butonunu kullanabilirsiniz.")
 
     def kendi_seanslarim(self):
         # Eğitim görevlisi için filtre zaten aktif; sadece ilgili sekmeye geç
@@ -9071,27 +9201,26 @@ class App(ttk.Window):
             if not vals:
                 return
             kid = vals[0]
-            if not messagebox.askyesno("Onay", "Seçili kasa kaydını silmek istiyor musunuz?"):
+            if not messagebox.askyesno("Onay", f"Kasa hareketi silinsin mi?\nID: {kid}"):
                 return
             try:
                 conn = self.veritabani_baglan()
                 kullanici_id = self.kullanici[0] if self.kullanici else None
                 pipeline = DataPipeline(conn, kullanici_id)
-                
-                # ✅ ENTERPRISE: Pipeline üzerinden sil (audit trail + cascade güncelleme)
                 basarili = pipeline.kasa_hareketi_sil(kid)
                 conn.close()
-                
+
                 if not basarili:
                     messagebox.showerror("Hata", "Kasa kaydı silinemedi!")
                     return
-                    
+
                 messagebox.showinfo("Başarılı", "Kasa kaydı silindi!\n\nİlgili tablolar otomatik güncellendi.")
             except Exception as e:
                 messagebox.showerror("Hata", f"Silinemedi:\n{e}")
                 log_exception("kasa_hareketi_sil_ui", e)
                 return
             _load()
+
 
         ttk.Button(top, text="Raporu Göster", bootstyle="primary", command=_load).pack(side=LEFT, padx=6)
         ttk.Button(top, text="Yenile", bootstyle="secondary", command=_load).pack(side=LEFT, padx=6)
@@ -9727,7 +9856,7 @@ class App(ttk.Window):
                 cur = conn.cursor()
                 t = (tarih_var.get() or "").strip()
                 s = (saat_cb.get() or "").strip() or self._default_saat()
-                d = (dan_cb.get() or "").strip().upper()
+                d = (dan_cb.get() or "").strip()
                 ter = (ter_cb.get() or "").strip()
                 nt = (ent_not.get() or "").strip()
                 cur.execute(
@@ -9866,7 +9995,7 @@ class App(ttk.Window):
                 messagebox.showwarning("Uyarı", "Ad Soyad zorunludur!")
                 return
             try:
-                danisan_adi = (ent_ad.get() or "").strip().upper()
+                danisan_adi = (ent_ad.get() or "").strip()
                 conn = self.veritabani_baglan()
                 cur = conn.cursor()
                 cur.execute(
@@ -9971,7 +10100,7 @@ class App(ttk.Window):
                     VALUES (?,?,?,?,?,?,?,?,?,1)
                     """,
                     (
-                        (ent_ad.get() or "").strip().upper(),
+                        (ent_ad.get() or "").strip(),
                         (ent_tel.get() or "").strip(),
                         (ent_email.get() or "").strip(),
                         (ent_veli.get() or "").strip(),
@@ -10403,7 +10532,6 @@ class App(ttk.Window):
             try:
                 conn_chk = self.veritabani_baglan()
                 cur_chk = conn_chk.cursor()
-                # Son aktif kurum müdürü pasif edilemesin
                 if rol == "kurum_muduru":
                     cur_chk.execute(
                         "SELECT COUNT(*) FROM users WHERE is_active=1 AND COALESCE(access_role, role)='kurum_muduru' AND id<>?",
@@ -10416,7 +10544,7 @@ class App(ttk.Window):
                 conn_chk.close()
             except Exception:
                 pass
-            if not messagebox.askyesno("Onay", f"'{uname}' kullanıcısı pasif edilsin mi?"):
+            if not messagebox.askyesno("Onay", f"'{uname}' kullanıcısı pasif yapılsın mı?"):
                 return
             conn = self.veritabani_baglan()
             cur = conn.cursor()
@@ -10702,7 +10830,7 @@ class App(ttk.Window):
                     WHERE id=?
                     """,
                     (
-                        (ent_ad.get() or "").strip().upper(),
+                        (ent_ad.get() or "").strip(),
                         (ent_veli.get() or "").strip(),
                         (ent_veli_tel.get() or "").strip(),
                         (ent_dogum.get() or "").strip(),
@@ -10835,7 +10963,11 @@ class App(ttk.Window):
         gid = self._selected_tree_id(parent.gorev_tree)
         if not gid:
             return
-        if not messagebox.askyesno("Onay", "Seçili görevi silmek istiyor musunuz?"):
+        if not messagebox.askyesno(
+            "Onay",
+            f"{danisan_adi} danışanını listeden kaldırmak istediğinize emin misiniz?\n\n"
+            "Bu işlem danışanı pasife alır (aktif=0).",
+        ):
             return
         try:
             conn = self.veritabani_baglan()
@@ -11068,7 +11200,11 @@ class App(ttk.Window):
         sid = self._selected_tree_id(parent.seans_tree)
         if not sid:
             return
-        if not messagebox.askyesno("Onay", "Seçili seansı silmek istiyor musunuz?"):
+        if not messagebox.askyesno(
+            "Onay",
+            f"{danisan_adi} danışanını listeden kaldırmak istediğinize emin misiniz?\n\n"
+            "Bu işlem danışanı pasife alır (aktif=0).",
+        ):
             return
         try:
             conn = self.veritabani_baglan()
@@ -11101,40 +11237,9 @@ class App(ttk.Window):
 
     # ✅ ONAM FORMU TAB
     def _build_onam_formu_tab(self):
-        """ONAM FORMU - Kişisel Veri Koruma Onam Formu"""
-        wrapper = ttk.Frame(self.tab_onam, padding=10)
-        wrapper.pack(fill=BOTH, expand=True)
-        
-        # Başlık
-        head = ttk.Frame(wrapper)
-        head.pack(fill=X, pady=(0, 10))
-        if getattr(self, "_logo_small", None):
-            ttk.Label(head, image=self._logo_small).pack(side=LEFT, padx=(0, 10))
-        ttk.Label(head, text="ONAM FORMU", font=("Segoe UI", 16, "bold"), bootstyle="primary").pack(side=LEFT)
-        
-        # Toolbar
-        toolbar = ttk.Frame(wrapper)
-        toolbar.pack(fill=X, pady=(0, 10))
-        ttk.Button(toolbar, text="➕ Yeni Onam Formu", bootstyle="success", command=self._onam_formu_ekle).pack(side=LEFT, padx=5)
-        ttk.Button(toolbar, text="🔄 Yenile", bootstyle="secondary", command=lambda: self._onam_formlari_listele(tree)).pack(side=LEFT, padx=5)
-        ttk.Button(toolbar, text="📊 Rapor Oluştur", bootstyle="info", command=lambda: self._onam_rapor_olustur(tree)).pack(side=LEFT, padx=5)
-        
-        # Liste
-        list_frame = ttk.Labelframe(wrapper, text="Onam Formları", padding=10, bootstyle="secondary")
-        list_frame.pack(fill=BOTH, expand=True)
-        
-        cols = ("ID", "Danışan", "Danışan Tarih", "Terapist", "Terapist Tarih", "Durum")
-        tree = ttk.Treeview(list_frame, columns=cols, show="headings", style="Strong.Treeview")
-        for c in cols:
-            tree.heading(c, text=c)
-            tree.column(c, width=150, anchor="center")
-        tree.pack(side=LEFT, fill=BOTH, expand=True)
-        vsb = ttk.Scrollbar(list_frame, orient=VERTICAL, command=tree.yview)
-        vsb.pack(side=RIGHT, fill=Y)
-        tree.configure(yscrollcommand=vsb.set)
-        
-        self._onam_formlari_listele(tree)
-    
+        """Bu modül kaldırıldı."""
+        messagebox.showinfo("Bilgi", "Bu modül bu sürümde kaldırılmıştır.")
+
     def _onam_formlari_listele(self, tree):
         """Onam formlarını listele"""
         for iid in tree.get_children():
@@ -11303,40 +11408,9 @@ class App(ttk.Window):
 
     # ✅ ÇOCUK TAKİP BİLGİ FORMU TAB (3 Sayfa)
     def _build_cocuk_takip_formu_tab(self):
-        """ÇOCUK TAKİP BİLGİ FORMU - 3 Sayfalık detaylı form"""
-        wrapper = ttk.Frame(self.tab_cocuk_takip, padding=10)
-        wrapper.pack(fill=BOTH, expand=True)
-        
-        # Başlık
-        head = ttk.Frame(wrapper)
-        head.pack(fill=X, pady=(0, 10))
-        if getattr(self, "_logo_small", None):
-            ttk.Label(head, image=self._logo_small).pack(side=LEFT, padx=(0, 10))
-        ttk.Label(head, text="ÇOCUK TAKİP BİLGİ FORMU", font=("Segoe UI", 16, "bold"), bootstyle="primary").pack(side=LEFT)
-        
-        # Toolbar
-        toolbar = ttk.Frame(wrapper)
-        toolbar.pack(fill=X, pady=(0, 10))
-        ttk.Button(toolbar, text="➕ Yeni Form", bootstyle="success", command=self._cocuk_takip_formu_ekle).pack(side=LEFT, padx=5)
-        ttk.Button(toolbar, text="🔄 Yenile", bootstyle="secondary", command=lambda: self._cocuk_takip_formlari_listele(tree)).pack(side=LEFT, padx=5)
-        ttk.Button(toolbar, text="📊 Rapor Oluştur", bootstyle="info", command=lambda: self._cocuk_takip_rapor_olustur(tree)).pack(side=LEFT, padx=5)
-        
-        # Liste
-        list_frame = ttk.Labelframe(wrapper, text="Çocuk Takip Formları", padding=10, bootstyle="secondary")
-        list_frame.pack(fill=BOTH, expand=True)
-        
-        cols = ("ID", "Danışan", "Form Tarihi", "Cinsiyet", "Doğum Tarihi", "Okul")
-        tree = ttk.Treeview(list_frame, columns=cols, show="headings", style="Strong.Treeview")
-        for c in cols:
-            tree.heading(c, text=c)
-            tree.column(c, width=150, anchor="center")
-        tree.pack(side=LEFT, fill=BOTH, expand=True)
-        vsb = ttk.Scrollbar(list_frame, orient=VERTICAL, command=tree.yview)
-        vsb.pack(side=RIGHT, fill=Y)
-        tree.configure(yscrollcommand=vsb.set)
-        
-        self._cocuk_takip_formlari_listele(tree)
-    
+        """Bu modül kaldırıldı."""
+        messagebox.showinfo("Bilgi", "Bu modül bu sürümde kaldırılmıştır.")
+
     def _cocuk_takip_formlari_listele(self, tree):
         """Çocuk takip formlarını listele"""
         for iid in tree.get_children():
@@ -12207,7 +12281,7 @@ class RegisterDialog(ttk.Toplevel):
         self.ent_pw = field("Şifre *:", show="*")
         self.ent_pw2 = field("Şifre Tekrar *:", show="*")
 
-        note = "Not: İlk kullanıcı 'kurum_muduru' rolüyle oluşturulur." if self.first_setup else "Not: Yeni kayıtlar 'egitim_gorevlisi' rolü ile açılır."
+        note = "Not: Bu sürümde tüm kullanıcılar Kurum Müdürü yetkisiyle açılır."
         ttk.Label(frm, text=note, foreground="gray").pack(pady=(10, 0))
 
         def _save():
@@ -12240,7 +12314,7 @@ class RegisterDialog(ttk.Toplevel):
                     conn.close()
                     messagebox.showerror("Hata", "Bu kullanıcı adı zaten var!")
                     return
-                access_role = ("kurum_muduru" if self.first_setup else "egitim_gorevlisi")
+                access_role = "kurum_muduru"
                 cur.execute(
                     """
                     INSERT INTO users (username, password_hash, role, access_role, title_role, full_name, email, created_at, is_active)
