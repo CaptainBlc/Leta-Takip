@@ -5729,9 +5729,8 @@ class App(ttk.Window):
         danisan_actions.pack(fill=X, pady=(6, 4))
         ttk.Label(danisan_actions, text="Seçili öğrenci işlemleri:", font=("Segoe UI", 10, "bold")).pack(side=LEFT, padx=(0, 8))
         ttk.Button(danisan_actions, text="✏️ Düzenle", bootstyle="secondary-outline", command=lambda: self._danisan_duzenle_from_tree(tree_danisanlar)).pack(side=LEFT, padx=4)
-        ttk.Button(danisan_actions, text="💰 Fiyatlandırma", bootstyle="warning-outline", command=lambda: self._danisan_fiyatlandirma(tree_danisanlar)).pack(side=LEFT, padx=4)
         ttk.Button(danisan_actions, text="📊 Detaylı Bilgi", bootstyle="info-outline", command=lambda: self._danisan_detayli_bilgi(tree_danisanlar)).pack(side=LEFT, padx=4)
-        ttk.Button(danisan_actions, text="🗑️ Aktif/Pasif", bootstyle="danger-outline", command=lambda: self._danisan_aktif_pasif_from_tree(tree_danisanlar)).pack(side=LEFT, padx=4)
+        ttk.Button(danisan_actions, text="🗑️ Danışanı Kaldır", bootstyle="danger-outline", command=lambda: self._danisan_aktif_pasif_from_tree(tree_danisanlar)).pack(side=LEFT, padx=4)
         
         wrapper._tree_danisanlar = tree_danisanlar
         self.tab_ogrenci_bilgileri.danisan_tree = tree_danisanlar
@@ -5740,15 +5739,7 @@ class App(ttk.Window):
         # İlk yükleme
         self._tum_danisanlari_listele(wrapper)
         
-        # ✅ DÜZELTME: Aile Bilgileri tablosu kaldırıldı (veli adı zaten üstte gösteriliyor)
-        # Notebook - Sadece Kimlik Bilgileri sayfası
-        nb_ogrenci = ttk.Notebook(wrapper)
-        nb_ogrenci.pack(fill=BOTH, expand=True, pady=(10, 0))
-        
-        # Sayfa 1: Kimlik Bilgileri (Aile Bilgileri kaldırıldı)
-        page_kimlik = ttk.Frame(nb_ogrenci, padding=10)
-        nb_ogrenci.add(page_kimlik, text="🆔 Kimlik Bilgileri")
-        self._build_ogrenci_kimlik_page(page_kimlik)
+        # Kimlik bilgileri bölümü kaldırıldı (talep doğrultusunda)
         
     
     def _build_ogrenci_aile_page(self, parent):
@@ -6505,7 +6496,7 @@ class App(ttk.Window):
             log_exception("_danisan_detayli_bilgi", e)
     
     def _danisan_aktif_pasif_from_tree(self, tree):
-        """Tree'den seçilen danışanı aktif/pasif yap"""
+        """Seçili danışanı aktif listeden kaldır (soft-delete: aktif=0)."""
         sel = tree.selection()
         if not sel:
             return
@@ -6517,45 +6508,28 @@ class App(ttk.Window):
         danisan_id = vals[0]
         danisan_adi = vals[1]
 
-        # Tablo kolonları sürümler arasında değişebildiği için durumu DB'den güvenli oku
-        try:
-            conn_chk = self.veritabani_baglan()
-            cur_chk = conn_chk.cursor()
-            cur_chk.execute("SELECT COALESCE(aktif,1) FROM danisanlar WHERE id=?", (danisan_id,))
-            row_chk = cur_chk.fetchone()
-            conn_chk.close()
-            aktif_mevcut = int((row_chk or [1])[0] or 0)
-        except Exception:
-            # fallback: satırın son kolonu "Durum" ise buradan çıkar
-            durum_txt = str(vals[-1]) if vals else "Aktif"
-            aktif_mevcut = 1 if durum_txt == "Aktif" else 0
-
-        yeni_durum = 0 if aktif_mevcut == 1 else 1
-        
-        if not messagebox.askyesno("Onay", f"{danisan_adi} danışanını {'pasif' if yeni_durum == 0 else 'aktif'} yapmak istediğinize emin misiniz?"):
+        if not messagebox.askyesno(
+            "Onay",
+            f"{danisan_adi} danışanını listeden kaldırmak istediğinize emin misiniz?\n\n"
+            "Bu işlem danışanı pasife alır (aktif=0).",
+        ):
             return
-        
+
         try:
             conn = self.veritabani_baglan()
             cur = conn.cursor()
-            # ✅ ENTERPRISE: Pipeline üzerinden güncelle (audit trail)
-            kullanici_id = self.kullanici[0] if self.kullanici else None
-            pipeline = DataPipeline(conn, kullanici_id)
-            basarili = pipeline.danisan_durum_guncelle(danisan_id, yeni_durum == 1)
+            cur.execute("UPDATE danisanlar SET aktif=0 WHERE id=?", (danisan_id,))
+            conn.commit()
             conn.close()
-            
-            if not basarili:
-                messagebox.showerror("Hata", "Danışan durumu güncellenemedi!")
-                return
-            
-            messagebox.showinfo("Başarılı", f"{danisan_adi} danışanı {'pasif' if yeni_durum == 0 else 'aktif'} yapıldı.")
-            # Listeyi yenile
-            parent = tree.master.master  # wrapper'a ulaş
+
+            messagebox.showinfo("Başarılı", f"{danisan_adi} danışanı kaldırıldı (pasif yapıldı).")
+            parent = tree.master.master
             self._tum_danisanlari_listele(parent)
         except Exception as e:
-            messagebox.showerror("Hata", f"Durum güncellenemedi:\n{e}")
+            messagebox.showerror("Hata", f"Danışan kaldırılamadı:\n{e}")
             log_exception("_danisan_aktif_pasif_from_tree", e)
-    
+
+
     # ==================== RAPOR OLUŞTURMA FONKSİYONLARI ====================
     
     def _bep_rapor_olustur(self, cmb_cocuk, cmb_yil):
@@ -7364,7 +7338,11 @@ class App(ttk.Window):
         
         sifre_id = tree.item(sel[0])["values"][0]
         
-        if not messagebox.askyesno("Onay", "Şifre kaydını silmek istediğinize emin misiniz?"):
+        if not messagebox.askyesno(
+            "Onay",
+            f"{danisan_adi} danışanını listeden kaldırmak istediğinize emin misiniz?\n\n"
+            "Bu işlem danışanı pasife alır (aktif=0).",
+        ):
             return
         
         try:
@@ -7709,7 +7687,11 @@ class App(ttk.Window):
         name = (self.lst.item(sel[0]).get("values") or [""])[0]
         if not name:
             return
-        if not messagebox.askyesno("Onay", f"'{name}' terapistini silmek istiyor musunuz?"):
+        if not messagebox.askyesno(
+            "Onay",
+            f"{danisan_adi} danışanını listeden kaldırmak istediğinize emin misiniz?\n\n"
+            "Bu işlem danışanı pasife alır (aktif=0).",
+        ):
             return
         try:
             conn = self.veritabani_baglan()
@@ -8873,27 +8855,26 @@ class App(ttk.Window):
             if not vals:
                 return
             kid = vals[0]
-            if not messagebox.askyesno("Onay", "Seçili kasa kaydını silmek istiyor musunuz?"):
+            if not messagebox.askyesno("Onay", f"Kasa hareketi silinsin mi?\nID: {kid}"):
                 return
             try:
                 conn = self.veritabani_baglan()
                 kullanici_id = self.kullanici[0] if self.kullanici else None
                 pipeline = DataPipeline(conn, kullanici_id)
-                
-                # ✅ ENTERPRISE: Pipeline üzerinden sil (audit trail + cascade güncelleme)
                 basarili = pipeline.kasa_hareketi_sil(kid)
                 conn.close()
-                
+
                 if not basarili:
                     messagebox.showerror("Hata", "Kasa kaydı silinemedi!")
                     return
-                    
+
                 messagebox.showinfo("Başarılı", "Kasa kaydı silindi!\n\nİlgili tablolar otomatik güncellendi.")
             except Exception as e:
                 messagebox.showerror("Hata", f"Silinemedi:\n{e}")
                 log_exception("kasa_hareketi_sil_ui", e)
                 return
             _load()
+
 
         ttk.Button(top, text="Raporu Göster", bootstyle="primary", command=_load).pack(side=LEFT, padx=6)
         ttk.Button(top, text="Yenile", bootstyle="secondary", command=_load).pack(side=LEFT, padx=6)
@@ -10205,7 +10186,6 @@ class App(ttk.Window):
             try:
                 conn_chk = self.veritabani_baglan()
                 cur_chk = conn_chk.cursor()
-                # Son aktif kurum müdürü pasif edilemesin
                 if rol == "kurum_muduru":
                     cur_chk.execute(
                         "SELECT COUNT(*) FROM users WHERE is_active=1 AND COALESCE(access_role, role)='kurum_muduru' AND id<>?",
@@ -10218,7 +10198,7 @@ class App(ttk.Window):
                 conn_chk.close()
             except Exception:
                 pass
-            if not messagebox.askyesno("Onay", f"'{uname}' kullanıcısı pasif edilsin mi?"):
+            if not messagebox.askyesno("Onay", f"'{uname}' kullanıcısı pasif yapılsın mı?"):
                 return
             conn = self.veritabani_baglan()
             cur = conn.cursor()
@@ -10637,7 +10617,11 @@ class App(ttk.Window):
         gid = self._selected_tree_id(parent.gorev_tree)
         if not gid:
             return
-        if not messagebox.askyesno("Onay", "Seçili görevi silmek istiyor musunuz?"):
+        if not messagebox.askyesno(
+            "Onay",
+            f"{danisan_adi} danışanını listeden kaldırmak istediğinize emin misiniz?\n\n"
+            "Bu işlem danışanı pasife alır (aktif=0).",
+        ):
             return
         try:
             conn = self.veritabani_baglan()
@@ -10870,7 +10854,11 @@ class App(ttk.Window):
         sid = self._selected_tree_id(parent.seans_tree)
         if not sid:
             return
-        if not messagebox.askyesno("Onay", "Seçili seansı silmek istiyor musunuz?"):
+        if not messagebox.askyesno(
+            "Onay",
+            f"{danisan_adi} danışanını listeden kaldırmak istediğinize emin misiniz?\n\n"
+            "Bu işlem danışanı pasife alır (aktif=0).",
+        ):
             return
         try:
             conn = self.veritabani_baglan()

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import datetime
+import json
 import sqlite3
 import unicodedata
 from typing import Any, Dict, List
 
 from core.logging_utils import log_exception
+from core.money import hesapla_personel_ucreti
 
 
 class DataPipeline:
@@ -67,6 +69,27 @@ class DataPipeline:
 
     def get_log(self) -> str:
         return "\n".join(self._log_lines[-500:])
+
+    def _audit(self, action_type: str, entity_type: str, entity_id: int | None = None, details: dict | None = None) -> None:
+        if not self.table_exists("audit_trail"):
+            return
+        try:
+            self.cur.execute(
+                """
+                INSERT INTO audit_trail (action_type, entity_type, entity_id, kullanici_id, details, olusturma_tarihi)
+                VALUES (?,?,?,?,?,?)
+                """,
+                (
+                    action_type,
+                    entity_type,
+                    entity_id,
+                    self.kullanici_id,
+                    json.dumps(details or {}, ensure_ascii=False),
+                    self._now(),
+                ),
+            )
+        except Exception:
+            pass
 
     # ---------- events ----------
     def on(self, event: str, fn) -> None:
@@ -282,6 +305,29 @@ class DataPipeline:
                     seans_id,
                 )
 
+            # personel hakedişi oluştur
+            if seans_id and hb > 0 and self.table_exists("personel_ucret_takibi"):
+                try:
+                    personel_ucreti = self._safe_float(hesapla_personel_ucreti(terapist, hb))
+                    ucret_orani = 100.0 if terapist == "Pervin Hoca" else (0.0 if terapist == "Arif Hoca" else 40.0)
+                    self.cur.execute(
+                        """
+                        INSERT OR IGNORE INTO personel_ucret_takibi
+                        (personel_adi, seans_id, tarih, seans_ucreti, personel_ucreti, ucret_orani, odeme_durumu, olusturma_tarihi, olusturan_kullanici_id)
+                        VALUES (?,?,?,?,?,?,?,?,?)
+                        """,
+                        (terapist, seans_id, tarih, hb, personel_ucreti, ucret_orani, "beklemede", self._now(), self.kullanici_id),
+                    )
+                except Exception as e:
+                    log_exception("pipeline.personel_ucret_insert", e)
+
+            self._audit("seans_kayit", "seans_takvimi", seans_id, {
+                "record_id": record_id,
+                "danisan_adi": danisan_upper,
+                "terapist": terapist,
+                "hizmet_bedeli": hb,
+                "alinan_ucret": au,
+            })
             self.conn.commit()
             self._trigger_event("seans_created", {"seans_id": seans_id, "record_id": record_id})
             return seans_id
@@ -341,6 +387,7 @@ class DataPipeline:
                     (hb, kalan, 1 if seans_alindi else 0, rid),
                 )
 
+            self._audit("kayit_sil", "seans_takvimi", seans_id, {"record_id": record_id})
             self.conn.commit()
             return True
         except Exception as e:
@@ -431,6 +478,7 @@ class DataPipeline:
             if seans_id and self.table_exists("seans_takvimi"):
                 self.cur.execute("UPDATE seans_takvimi SET ucret_alindi=1 WHERE id=?", (seans_id,))
 
+            self._audit("odeme_ekle", "records", record_id, {"tutar": tutar, "odeme_sekli": odeme_sekli, "seans_id": seans_id})
             self.conn.commit()
             return True
         except Exception as e:
@@ -745,7 +793,8 @@ class DataPipeline:
         if tutar <= 0 or not personel_u:
             return False
 
-        tip = "cikan" if str(islem_turu).lower().startswith("g") else "giren"
+        islem = str(islem_turu or "").strip().lower()
+        tip = "cikan" if islem in {"gider", "avans", "maaş ödemesi", "maas odemesi", "prim", "yol/yemek", "yol", "yemek"} else "giren"
         try:
             self.conn.execute("BEGIN")
             self._add_kasa(
@@ -763,6 +812,7 @@ class DataPipeline:
                     "INSERT INTO sistem_gunlugu (tarih, olay, aciklama, olusturma_tarihi) VALUES (?,?,?,?)",
                     (self._today(), "PERSONEL_ISLEM", f"{personel_u} {tip} {tutar} | {aciklama}", self._now()),
                 )
+            self._audit("personel_islem", "kasa_hareketleri", None, {"personel": personel_u, "tip": tip, "tutar": tutar, "islem_turu": islem_turu})
             self.conn.commit()
             return True
         except Exception as e:
@@ -832,6 +882,7 @@ class DataPipeline:
                         self._now(),
                     ),
                 )
+            self._audit("personel_ucret_odeme", "personel_ucret_takibi", ucret_takibi_id, {"personel": personel, "tutar": tutar})
             self.conn.commit()
             return True
         except Exception as e:
