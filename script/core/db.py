@@ -136,6 +136,29 @@ def _ensure_minimum_schema(conn: sqlite3.Connection) -> None:
         """
     )
 
+
+    # Haftalık seans programı
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS haftalik_seans_programi (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            personel_adi TEXT NOT NULL,
+            hafta_baslangic_tarihi TEXT NOT NULL,
+            gun TEXT NOT NULL,
+            saat TEXT NOT NULL,
+            ogrenci_adi TEXT,
+            oda_adi TEXT,
+            notlar TEXT,
+            olusturma_tarihi TEXT,
+            guncelleme_tarihi TEXT,
+            olusturan_kullanici_id INTEGER,
+            UNIQUE(personel_adi, hafta_baslangic_tarihi, gun, saat)
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_haftalik_personel ON haftalik_seans_programi(personel_adi)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_haftalik_tarih ON haftalik_seans_programi(hafta_baslangic_tarihi)")
+
     # Refactor modüllerinin kullandığı tablolar
     cur.execute(
         """

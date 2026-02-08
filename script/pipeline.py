@@ -309,17 +309,32 @@ class DataPipeline:
             if seans_id and hb > 0 and self.table_exists("personel_ucret_takibi"):
                 try:
                     personel_ucreti = self._safe_float(hesapla_personel_ucreti(terapist, hb))
+                    kural = "sabit" if terapist == "Arif Hoca" else ("yuzde100" if terapist == "Pervin Hoca" else "yuzde40")
                     ucret_orani = 100.0 if terapist == "Pervin Hoca" else (0.0 if terapist == "Arif Hoca" else 40.0)
                     self.cur.execute(
                         """
                         INSERT OR IGNORE INTO personel_ucret_takibi
-                        (personel_adi, seans_id, tarih, seans_ucreti, personel_ucreti, ucret_orani, odeme_durumu, olusturma_tarihi, olusturan_kullanici_id)
-                        VALUES (?,?,?,?,?,?,?,?,?)
+                        (personel_adi, seans_id, tarih, seans_ucreti, personel_ucreti, ucret_orani, odeme_durumu, aciklama, olusturma_tarihi, olusturan_kullanici_id)
+                        VALUES (?,?,?,?,?,?,?,?,?,?)
                         """,
-                        (terapist, seans_id, tarih, hb, personel_ucreti, ucret_orani, "beklemede", self._now(), self.kullanici_id),
+                        (terapist, seans_id, tarih, hb, personel_ucreti, ucret_orani, "beklemede", f"Kural:{kural}", self._now(), self.kullanici_id),
                     )
                 except Exception as e:
                     log_exception("pipeline.personel_ucret_insert", e)
+
+            # çocuk günlük takip entegrasyonu: seans kaydıyla günlük operasyon kaydı oluştur
+            if seans_id and cocuk_id and self.table_exists("cocuk_gunluk_takip"):
+                try:
+                    self.cur.execute(
+                        """
+                        INSERT INTO cocuk_gunluk_takip
+                        (cocuk_id, tarih, oda_adi, personel_adi, seans_id, notlar, olusturma_tarihi)
+                        VALUES (?,?,?,?,?,?,?)
+                        """,
+                        (cocuk_id, tarih, oda, terapist, seans_id, "Seans kaydından otomatik üretildi", self._now()),
+                    )
+                except Exception as e:
+                    log_exception("pipeline.cocuk_gunluk_insert", e)
 
             self._audit("seans_kayit", "seans_takvimi", seans_id, {
                 "record_id": record_id,
@@ -855,34 +870,51 @@ class DataPipeline:
             return out
 
     def personel_ucret_odeme_kasa_entegrasyonu(self, personel_adi: str, tutar: float, ucret_takibi_id: int | None = None) -> bool:
-        """Personel ücret ödemesini kasa hareketlerine 'çıkan' olarak işler."""
-        personel = (personel_adi or "").strip().upper()
-        tutar = self._safe_float(tutar)
-        if not personel or tutar <= 0:
-            return False
+        """Personel ücret ödemesini kayda geçirir: put.odendi + kasa(cikan)."""
         try:
             self.conn.execute("BEGIN")
+
+            personel = (personel_adi or "").strip().upper()
+            tutar_val = self._safe_float(tutar)
+
+            if ucret_takibi_id and self.table_exists("personel_ucret_takibi"):
+                self.cur.execute(
+                    "SELECT personel_adi, COALESCE(personel_ucreti,0), COALESCE(odeme_durumu,'beklemede') FROM personel_ucret_takibi WHERE id=?",
+                    (ucret_takibi_id,),
+                )
+                row = self.cur.fetchone()
+                if not row:
+                    self.conn.rollback()
+                    return False
+                personel = (row[0] or personel).strip().upper()
+                tutar_val = self._safe_float(row[1] if row[1] is not None else tutar_val)
+                self.cur.execute(
+                    "UPDATE personel_ucret_takibi SET odeme_durumu='odendi', odeme_tarihi=? WHERE id=?",
+                    (self._today(), ucret_takibi_id),
+                )
+
+            if not personel or tutar_val <= 0:
+                self.conn.rollback()
+                return False
+
             self._add_kasa(
                 tarih=self._today(),
                 tip="cikan",
                 aciklama=f"Personel Ücret Ödemesi: {personel}",
-                tutar=tutar,
+                tutar=tutar_val,
                 odeme_sekli="",
                 gider_kategorisi="Personel",
                 record_id=None,
                 seans_id=None,
             )
+
             if self.table_exists("sistem_gunlugu"):
                 self.cur.execute(
                     "INSERT INTO sistem_gunlugu (tarih, olay, aciklama, olusturma_tarihi) VALUES (?,?,?,?)",
-                    (
-                        self._today(),
-                        "PERSONEL_UCRET_ODEME",
-                        f"personel={personel} tutar={tutar} ucret_takibi_id={ucret_takibi_id}",
-                        self._now(),
-                    ),
+                    (self._today(), "PERSONEL_UCRET_ODEME", f"personel={personel} tutar={tutar_val} ucret_takibi_id={ucret_takibi_id}", self._now()),
                 )
-            self._audit("personel_ucret_odeme", "personel_ucret_takibi", ucret_takibi_id, {"personel": personel, "tutar": tutar})
+
+            self._audit("personel_ucret_odeme", "personel_ucret_takibi", ucret_takibi_id, {"personel": personel, "tutar": tutar_val})
             self.conn.commit()
             return True
         except Exception as e:
@@ -892,6 +924,7 @@ class DataPipeline:
                 pass
             log_exception("pipeline.personel_ucret_odeme_kasa_entegrasyonu", e)
             return False
+
 
     def toplu_odeme_al(self, danisan_adi: str, tutar: float, aciklama: str = "Toplu Ödeme / Peşinat") -> bool:
         """Danışanın açık borçlarına toplu tahsilat uygular ve kasa/ödeme hareketi üretir."""

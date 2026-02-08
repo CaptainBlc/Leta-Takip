@@ -2032,6 +2032,13 @@ class App(ttk.Window):
         wrapper = ttk.Frame(self.tab_modules, padding=20)
         wrapper.pack(fill=BOTH, expand=True)
 
+        ttk.Label(
+            wrapper,
+            text="Çocuk Günlük Takip: Seanslardan otomatik oluşan günlük operasyon kayıtlarını (oda/personel) izlemek için kullanılır.",
+            font=("Segoe UI", 9),
+            foreground="gray",
+        ).pack(anchor=W, pady=(0, 6))
+
         # Başlık
         head = ttk.Frame(wrapper)
         head.pack(fill=X, pady=(0, 20))
@@ -2805,7 +2812,7 @@ class App(ttk.Window):
                     hizmet_bedeli=bedel,
                     alinan_ucret=alinan,
                     notlar=notlar,
-                    oda="",
+                    oda=oda,
                     check_oda_cakisma=False
                 )
                 
@@ -2865,6 +2872,33 @@ class App(ttk.Window):
         ent_alinan.bind("<Return>", lambda e: ent_not.focus_set())
         ent_not.bind("<Return>", lambda e: _save())
 
+    def _haftalik_programda_seans_bul(self, danisan: str, terapist: str, tarih_db: str):
+        """Haftalık programdan ilgili gün/personel/danışan seans slotunu döndürür (saat, oda)."""
+        try:
+            dt = datetime.datetime.strptime(tarih_db, "%Y-%m-%d")
+            hafta_bas = (dt - datetime.timedelta(days=dt.weekday())).strftime("%Y-%m-%d")
+            gunler = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
+            gun = gunler[dt.weekday()]
+            conn = self.veritabani_baglan()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT saat, COALESCE(oda_adi,'')
+                FROM haftalik_seans_programi
+                WHERE personel_adi=? AND hafta_baslangic_tarihi=? AND gun=? AND UPPER(TRIM(COALESCE(ogrenci_adi,'')))=UPPER(TRIM(?))
+                ORDER BY saat
+                LIMIT 1
+                """,
+                (terapist, hafta_bas, gun, danisan),
+            )
+            row = cur.fetchone()
+            conn.close()
+            if row:
+                return str(row[0] or "09:00"), str(row[1] or "")
+            return None
+        except Exception:
+            return None
+
     def kayit_ekle(self):
         """
         PIPELINE ENTEGRASYONU: Seans kaydı ekleme (SEANS TAKİP ANA KAYNAK)
@@ -2883,9 +2917,17 @@ class App(ttk.Window):
             messagebox.showwarning("Uyarı", "Lütfen terapist seçiniz!")
             return
 
-        # Saat haftalık programda; kayıtta varsayılan 09:00
+        # Seans sadece haftalık program üzerinden oluşturulur
         tarih = self._tarih_db()
-        saat = "09:00"
+        slot = self._haftalik_programda_seans_bul(danisan, terapist, tarih)
+        if not slot:
+            messagebox.showwarning(
+                "Haftalık Programda Bulunamadı",
+                f"{danisan} / {terapist} için seçilen tarihte haftalık program kaydı yok.\n\n"
+                "Önce HAFTALIK PROGRAM modülünden seansı planlayın.",
+            )
+            return
+        saat, oda = slot
 
         # ✅ Hizmet bedeli kullanıcıdan alınmaz; Ücret Takibi fiyatlandırmasından otomatik gelir
         bedel = 0.0
@@ -2923,8 +2965,7 @@ class App(ttk.Window):
         # Not: Manuel girilir
         notlar_manuel = (self.ent_not.get() or "").strip()
         
-        # Oda seçimi kaldırıldı; kayıt oda olmadan yapılır
-        oda = ""
+        
 
         try:
             conn = self.veritabani_baglan()
@@ -2948,7 +2989,7 @@ class App(ttk.Window):
                 hizmet_bedeli=bedel,
                 alinan_ucret=alinan,
                 notlar=notlar,
-                oda="",
+                oda=oda,
                 check_oda_cakisma=False
             )
             
@@ -3326,6 +3367,13 @@ class App(ttk.Window):
         wrapper = ttk.Frame(self.tab_ucret_takibi, padding=10)
         wrapper.pack(fill=BOTH, expand=True)
         
+        ttk.Label(
+            wrapper,
+            text="Çocuk Günlük Takip: Seanslardan otomatik oluşan günlük operasyon kayıtlarını (oda/personel) izlemek için kullanılır.",
+            font=("Segoe UI", 9),
+            foreground="gray",
+        ).pack(anchor=W, pady=(0, 6))
+
         # Başlık
         head = ttk.Frame(wrapper)
         head.pack(fill=X, pady=(0, 10))
@@ -4489,6 +4537,13 @@ class App(ttk.Window):
         wrapper = ttk.Frame(self.tab_cocuk_gunluk, padding=10)
         wrapper.pack(fill=BOTH, expand=True)
         
+        ttk.Label(
+            wrapper,
+            text="Çocuk Günlük Takip: Seanslardan otomatik oluşan günlük operasyon kayıtlarını (oda/personel) izlemek için kullanılır.",
+            font=("Segoe UI", 9),
+            foreground="gray",
+        ).pack(anchor=W, pady=(0, 6))
+
         # Başlık
         head = ttk.Frame(wrapper)
         head.pack(fill=X, pady=(0, 10))
@@ -4649,6 +4704,13 @@ class App(ttk.Window):
         wrapper = ttk.Frame(self.tab_kasa, padding=10)
         wrapper.pack(fill=BOTH, expand=True)
         
+        ttk.Label(
+            wrapper,
+            text="Çocuk Günlük Takip: Seanslardan otomatik oluşan günlük operasyon kayıtlarını (oda/personel) izlemek için kullanılır.",
+            font=("Segoe UI", 9),
+            foreground="gray",
+        ).pack(anchor=W, pady=(0, 6))
+
         # Başlık
         head = ttk.Frame(wrapper)
         head.pack(fill=X, pady=(0, 10))
@@ -5313,6 +5375,13 @@ class App(ttk.Window):
         wrapper = ttk.Frame(self.tab_haftalik, padding=10)
         wrapper.pack(fill=BOTH, expand=True)
         
+        ttk.Label(
+            wrapper,
+            text="Çocuk Günlük Takip: Seanslardan otomatik oluşan günlük operasyon kayıtlarını (oda/personel) izlemek için kullanılır.",
+            font=("Segoe UI", 9),
+            foreground="gray",
+        ).pack(anchor=W, pady=(0, 6))
+
         # Başlık
         head = ttk.Frame(wrapper)
         head.pack(fill=X, pady=(0, 10))
@@ -5678,6 +5747,13 @@ class App(ttk.Window):
         # Seans ekleme sonrası borç tablosunu yenilemek için sakla
         self._ogrenci_bilgileri_wrapper = wrapper
         
+        ttk.Label(
+            wrapper,
+            text="Çocuk Günlük Takip: Seanslardan otomatik oluşan günlük operasyon kayıtlarını (oda/personel) izlemek için kullanılır.",
+            font=("Segoe UI", 9),
+            foreground="gray",
+        ).pack(anchor=W, pady=(0, 6))
+
         # Başlık
         head = ttk.Frame(wrapper)
         head.pack(fill=X, pady=(0, 10))
@@ -8298,7 +8374,7 @@ class App(ttk.Window):
                                 hizmet_bedeli=bedel,
                                 alinan_ucret=alinan,
                                 notlar=notlar,
-                                oda="",
+                                oda=oda,
                                 check_oda_cakisma=False,
                                 skip_pricing_update=True,  # Tarihsel veri; güncel fiyatlar ayrı verilecek
                                 ensure_danisan=False,  # Eski veri importunda danışanlar listesi şişmesin
