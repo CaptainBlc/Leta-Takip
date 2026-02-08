@@ -3662,6 +3662,8 @@ class App(ttk.Window):
                    command=self.excel_ucret_listesi_yukle).pack(side=LEFT, padx=5)
         ttk.Button(toolbar, text="🔄 Yenile", bootstyle="secondary",
                    command=lambda: self._cocuk_ucret_listele(parent)).pack(side=LEFT, padx=5)
+        ttk.Button(toolbar, text="➕ Yeni Danışan Fiyatlandır", bootstyle="success-outline",
+                   command=lambda: self._yeni_danisan_fiyatlandirma_ekle(parent)).pack(side=LEFT, padx=5)
         
         # Arama
         search_frame = ttk.Frame(parent)
@@ -4087,6 +4089,169 @@ class App(ttk.Window):
             messagebox.showerror("Hata", f"Fiyatlandırma güncellenemedi:\n{e}")
             log_exception("_fiyatlandirma_guncelle", e)
     
+    def _yeni_danisan_fiyatlandirma_ekle(self, parent):
+        """Yeni eklenen danışan için hocaya göre ücret ataması (Excel zorunluluğu olmadan)."""
+        conn = None
+        try:
+            conn = self.veritabani_baglan()
+            cur = conn.cursor()
+            cur.execute("SELECT id, ad_soyad FROM danisanlar WHERE COALESCE(aktif,1)=1 ORDER BY ad_soyad")
+            danisanlar = cur.fetchall() or []
+            cur.execute("SELECT therapist_name FROM settings WHERE is_active=1 ORDER BY therapist_name")
+            terapistler = [r[0] for r in (cur.fetchall() or []) if r and r[0]]
+        except Exception as e:
+            messagebox.showerror("Hata", f"Danışan/terapist listesi yüklenemedi:\n{e}")
+            return
+        finally:
+            try:
+                if conn is not None:
+                    conn.close()
+            except Exception:
+                pass
+
+        if not danisanlar:
+            messagebox.showwarning("Uyarı", "Aktif danışan bulunamadı.")
+            return
+        if not terapistler:
+            messagebox.showwarning("Uyarı", "Aktif terapist bulunamadı. Önce terapist tanımlayın.")
+            return
+
+        win = ttk.Toplevel(self)
+        win.title("Yeni Danışan Fiyatlandır")
+        center_window_smart(win, 520, 430, min_w=500, min_h=410)
+        win.transient(self)
+        self._brand_window(win)
+
+        wrapper = ttk.Frame(win, padding=16)
+        wrapper.pack(fill=BOTH, expand=True)
+
+        ttk.Label(wrapper, text="Yeni Danışan Fiyatlandırma", font=("Segoe UI", 14, "bold"), bootstyle="primary").pack(pady=(0, 12))
+
+        ttk.Label(wrapper, text="Danışan:").pack(anchor=W)
+        cmb_danisan = ttk.Combobox(wrapper, state="readonly", width=48,
+                                   values=[f"{r[1]} ({r[0]})" for r in danisanlar])
+        cmb_danisan.pack(fill=X, pady=(4, 10))
+        cmb_danisan.current(0)
+
+        ttk.Label(wrapper, text="Terapist:").pack(anchor=W)
+        cmb_ter = ttk.Combobox(wrapper, state="readonly", width=48, values=terapistler)
+        cmb_ter.pack(fill=X, pady=(4, 10))
+        cmb_ter.current(0)
+
+        ttk.Label(wrapper, text="Seans Ücreti (TL):").pack(anchor=W)
+        ent_ucret = ttk.Entry(wrapper)
+        ent_ucret.pack(fill=X, pady=(4, 10))
+
+        ttk.Label(wrapper, text="Başlangıç Tarihi (YYYY-MM-DD):").pack(anchor=W)
+        ent_baslangic = ttk.Entry(wrapper)
+        ent_baslangic.insert(0, datetime.datetime.now().strftime("%Y-%m-%d"))
+        ent_baslangic.pack(fill=X, pady=(4, 10))
+
+        ttk.Label(wrapper, text="Yıllık Zam Oranı (%):").pack(anchor=W)
+        ent_zam = ttk.Entry(wrapper)
+        ent_zam.insert(0, "0")
+        ent_zam.pack(fill=X, pady=(4, 10))
+
+        def _parse_selected_danisan_id() -> int | None:
+            txt = (cmb_danisan.get() or "").strip()
+            if "(" in txt and txt.endswith(")"):
+                try:
+                    return int(txt.rsplit("(", 1)[1][:-1])
+                except Exception:
+                    return None
+            return None
+
+        def kaydet():
+            ogrenci_id = _parse_selected_danisan_id()
+            personel_adi = (cmb_ter.get() or "").strip()
+            try:
+                ucret = float((ent_ucret.get() or "0").replace(",", "."))
+            except Exception:
+                messagebox.showwarning("Uyarı", "Geçerli bir ücret girin.")
+                return
+            baslangic = (ent_baslangic.get() or "").strip()
+            try:
+                zam_orani = float((ent_zam.get() or "0").replace(",", "."))
+            except Exception:
+                zam_orani = 0.0
+
+            if not ogrenci_id or not personel_adi:
+                messagebox.showwarning("Uyarı", "Danışan ve terapist seçimi zorunlu.")
+                return
+            if ucret <= 0:
+                messagebox.showwarning("Uyarı", "Seans ücreti 0'dan büyük olmalıdır.")
+                return
+            if not baslangic:
+                messagebox.showwarning("Uyarı", "Başlangıç tarihi gerekli.")
+                return
+
+            conn2 = None
+            try:
+                conn2 = self.veritabani_baglan()
+                cur2 = conn2.cursor()
+                now_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+                cur2.execute("SELECT ad_soyad FROM danisanlar WHERE id=?", (ogrenci_id,))
+                r = cur2.fetchone()
+                ogrenci_adi = r[0] if r and r[0] else ""
+
+                # Aynı danışan+terapist aktif kayıt varsa pasif yap
+                cur2.execute(
+                    "UPDATE ogrenci_personel_fiyatlandirma SET aktif=0 WHERE ogrenci_id=? AND personel_adi=? AND aktif=1",
+                    (ogrenci_id, personel_adi),
+                )
+
+                cur2.execute(
+                    """
+                    INSERT INTO ogrenci_personel_fiyatlandirma
+                    (ogrenci_id, personel_adi, seans_ucreti, baslangic_tarihi, bitis_tarihi, zam_orani, aktif, olusturma_tarihi, guncelleme_tarihi)
+                    VALUES (?, ?, ?, ?, NULL, ?, 1, ?, ?)
+                    """,
+                    (ogrenci_id, personel_adi, ucret, baslangic, zam_orani, now_ts, now_ts),
+                )
+
+                cur2.execute(
+                    """
+                    INSERT OR REPLACE INTO pricing_policy
+                    (student_id, teacher_name, price, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (ogrenci_id, personel_adi, ucret, now_ts, now_ts),
+                )
+
+                # Gelecek planlı seansları yeni fiyata çek
+                cur2.execute(
+                    """
+                    UPDATE seans_takvimi
+                    SET hizmet_bedeli=?
+                    WHERE COALESCE(danisan_adi,'')=? AND COALESCE(terapist,'')=?
+                      AND COALESCE(tarih,'')>=?
+                      AND (COALESCE(durum,'') IN ('', 'planlandi'))
+                    """,
+                    (ucret, ogrenci_adi, personel_adi, baslangic),
+                )
+
+                conn2.commit()
+                messagebox.showinfo("Başarılı", f"Fiyatlandırma kaydedildi.\n\n{ogrenci_adi} - {personel_adi}: {format_money(ucret)}")
+                win.destroy()
+                self._cocuk_ucret_listele(parent)
+                self.kayitlari_listele()
+                self._refresh_borc_tables()
+            except Exception as e:
+                messagebox.showerror("Hata", f"Fiyatlandırma kaydedilemedi:\n{e}")
+                log_exception("_yeni_danisan_fiyatlandirma_ekle", e)
+            finally:
+                try:
+                    if conn2 is not None:
+                        conn2.close()
+                except Exception:
+                    pass
+
+        btns = ttk.Frame(wrapper)
+        btns.pack(fill=X, pady=(12, 0))
+        ttk.Button(btns, text="💾 Kaydet", bootstyle="success", command=kaydet).pack(side=LEFT)
+        ttk.Button(btns, text="İptal", bootstyle="secondary", command=win.destroy).pack(side=RIGHT)
+
     def _cocuk_detayli_rapor(self, parent, tree):
         """Çocuk detaylı rapor penceresi"""
         sel = tree.selection()
