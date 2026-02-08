@@ -129,62 +129,61 @@ class App(ttk.Window):
 
         ttk.Button(win, text="KASADAN ÖDE", bootstyle="danger", command=kaydet).pack(pady=15)
     def _kasa_secili_sil(self, parent):
-   
-    # pipeline var mı garanti et
-     pipeline = getattr(self, "pipeline", None)
-     if pipeline is None:
-        messagebox.showerror("Hata", "Pipeline bulunamadı (self.pipeline yok).")
-        return
+        """Kasa defterinden seçili satırı güvenli şekilde sil."""
+        tree = getattr(parent, "_tree_kasa", None) or getattr(self, "_tree_kasa", None)
+        if not tree:
+            messagebox.showerror("Hata", "Kasa tablosu bulunamadı.")
+            return
 
-     tree = getattr(parent, "_tree_kasa", None)
-     if tree is None:
-        # Bazı sürümlerde tree parent üzerinde değil, self üzerinde tutuluyor olabilir
-        tree = getattr(self, "_tree_kasa", None)
+        sel = tree.selection()
+        if not sel:
+            messagebox.showwarning("Uyarı", "Silmek için bir satır seç.")
+            return
 
-     if not tree:
-        messagebox.showerror("Hata", "Kasa tablosu bulunamadı.")
-        return
+        values = tree.item(sel[0], "values") or []
+        if not values:
+            messagebox.showerror("Hata", "Seçili satır okunamadı.")
+            return
 
-     sel = tree.selection()
-     if not sel:
-        messagebox.showwarning("Uyarı", "Silmek için bir satır seç.")
-        return
+        try:
+            hareket_id = int(values[0])
+        except Exception:
+            messagebox.showerror("Hata", f"Geçersiz ID: {values[0]!r}")
+            return
 
-     values = tree.item(sel[0], "values") or []
-     if not values:
-        messagebox.showerror("Hata", "Seçili satır okunamadı.")
-        return
+        if not messagebox.askyesno("Onay", f"Kasa hareketi silinsin mi?\nID: {hareket_id}"):
+            return
 
-     try:
-        hareket_id = int(values[0])
-     except Exception:
-        messagebox.showerror("Hata", f"Geçersiz ID: {values[0]!r}")
-        return
+        conn = None
+        try:
+            conn = self.veritabani_baglan()
+            kullanici_id = self.kullanici[0] if self.kullanici else None
+            pipeline = DataPipeline(conn, kullanici_id)
+            ok = bool(pipeline.kasa_hareketi_sil(hareket_id))
+            conn.close()
 
-     if not messagebox.askyesno("Onay", f"Kasa hareketi silinsin mi?\nID: {hareket_id}"):
-        return
+            if not ok:
+                messagebox.showerror("Hata", "Silme başarısız. Kayıt bulunamadı veya silinemedi.")
+                return
 
-     ok = False
-     if hasattr(pipeline, "kasa_hareket_sil"):
-        ok = bool(pipeline.kasa_hareket_sil(hareket_id))
-     elif hasattr(pipeline, "kasa_hareketi_sil"):
-        ok = bool(pipeline.kasa_hareketi_sil(hareket_id))
+            try:
+                if hasattr(self, "_kasa_rapor_yukle"):
+                    self._kasa_rapor_yukle(parent)
+                elif hasattr(self, "kasa_rapor_yukle"):
+                    self.kasa_rapor_yukle(parent)
+            except Exception:
+                pass
 
-     if not ok:
-        messagebox.showerror("Hata", "Silme başarısız. Log'a bak.")
-        return
-
-    # tabloyu yenile: senin projede yenileme fonksiyonu farklı isimde olabilir
-     try:
-        if hasattr(self, "_kasa_rapor_yukle"):
-            self._kasa_rapor_yukle(parent)
-        elif hasattr(self, "kasa_rapor_yukle"):
-            self.kasa_rapor_yukle(parent)
-     except Exception:
-        pass
-
-     messagebox.showinfo("OK", "Kasa hareketi silindi.")
-
+            messagebox.showinfo("OK", "Kasa hareketi silindi.")
+        except Exception as e:
+            messagebox.showerror("Hata", f"Silme başarısız:\n{e}")
+            log_exception("_kasa_secili_sil", e)
+        finally:
+            try:
+                if conn is not None:
+                    conn.close()
+            except Exception:
+                pass
 
 
     def _kasa_popup_odeme_ekle(self, parent):
@@ -4399,7 +4398,8 @@ class App(ttk.Window):
                 conn.close()
                 
                 for row in rows:
-                    tree.insert("", END, values=row)
+                    rid, tarih, seans_ucreti, personel_ucreti = row
+                    tree.insert("", END, values=(int(rid), tarih, format_money(seans_ucreti), format_money(personel_ucreti)))
             except Exception as e:
                 messagebox.showerror("Hata", f"Liste yüklenemedi:\n{e}")
         
@@ -4412,7 +4412,15 @@ class App(ttk.Window):
                 messagebox.showwarning("Uyarı", "Lütfen ödeme yapılacak kaydı seçin.")
                 return
 
-            ucret_id = tree.item(secili[0])["values"][0]
+            vals = tree.item(secili[0]).get("values") or []
+            if not vals:
+                messagebox.showerror("Hata", "Seçili satır okunamadı.")
+                return
+            try:
+                ucret_id = int(vals[0])
+            except Exception:
+                messagebox.showerror("Hata", f"Geçersiz ücret ID: {vals[0]!r}")
+                return
             
             try:
                 conn = self.veritabani_baglan()
