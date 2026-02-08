@@ -34,7 +34,13 @@ import unicodedata
 if sys.platform == "darwin":
     os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
 
-import pandas as pd
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    pd = None
+    PANDAS_AVAILABLE = False
+
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import tkinter as tk
