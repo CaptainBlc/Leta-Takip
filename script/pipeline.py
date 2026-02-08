@@ -562,11 +562,60 @@ class DataPipeline:
             return False
         try:
             self.conn.execute("BEGIN")
+
+            self.cur.execute(
+                "SELECT COALESCE(tip,''), COALESCE(tutar,0), COALESCE(record_id,0), COALESCE(seans_id,0), COALESCE(aciklama,''), COALESCE(gider_kategorisi,'') FROM kasa_hareketleri WHERE id=?",
+                (hareket_id,),
+            )
+            row = self.cur.fetchone()
+            if not row:
+                self.conn.rollback()
+                return False
+
+            tip, tutar_raw, record_id_raw, seans_id_raw, aciklama, gider_kategorisi = row
+            tutar = self._safe_float(tutar_raw)
+            record_id = int(record_id_raw or 0) or None
+            seans_id = int(seans_id_raw or 0) or None
+
             self.cur.execute("DELETE FROM kasa_hareketleri WHERE id=?", (hareket_id,))
+
+            # Tahsilat silinirse records/seans tarafını geri senkronla
+            if tip == "giren" and record_id and self.table_exists("records"):
+                self.cur.execute(
+                    "SELECT COALESCE(hizmet_bedeli,0), COALESCE(alinan_ucret,0), COALESCE(seans_id,0) FROM records WHERE id=?",
+                    (record_id,),
+                )
+                rr = self.cur.fetchone()
+                if rr:
+                    hizmet = self._safe_float(rr[0])
+                    alinan_mevcut = self._safe_float(rr[1])
+                    rid_seans = int(rr[2] or 0) or None
+                    yeni_alinan = max(0.0, alinan_mevcut - tutar)
+                    yeni_kalan = max(0.0, hizmet - yeni_alinan)
+                    self.cur.execute(
+                        "UPDATE records SET alinan_ucret=?, kalan_borc=? WHERE id=?",
+                        (yeni_alinan, yeni_kalan, record_id),
+                    )
+
+                    if self.table_exists("seans_takvimi"):
+                        sid = seans_id or rid_seans
+                        if sid:
+                            self.cur.execute("UPDATE seans_takvimi SET ucret_alindi=? WHERE id=?", (1 if yeni_kalan <= 0 else 0, sid))
+
+                # Ödeme hareketlerinden bir eşleşeni düş (varsa)
+                if self.table_exists("odeme_hareketleri"):
+                    self.cur.execute(
+                        "SELECT id FROM odeme_hareketleri WHERE record_id=? AND ABS(COALESCE(tutar,0)-?) < 0.0001 ORDER BY id DESC LIMIT 1",
+                        (record_id, tutar),
+                    )
+                    od = self.cur.fetchone()
+                    if od:
+                        self.cur.execute("DELETE FROM odeme_hareketleri WHERE id=?", (int(od[0]),))
+
             if self.table_exists("sistem_gunlugu"):
                 self.cur.execute(
                     "INSERT INTO sistem_gunlugu (tarih, olay, aciklama, olusturma_tarihi) VALUES (?,?,?,?)",
-                    (self._today(), "KASA_SIL", f"Kasa hareketi silindi: id={hareket_id}", self._now()),
+                    (self._today(), "KASA_SIL", f"Kasa hareketi silindi: id={hareket_id} tip={tip} tutar={tutar} record_id={record_id}", self._now()),
                 )
             self.conn.commit()
             return True

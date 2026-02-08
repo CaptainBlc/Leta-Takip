@@ -101,6 +101,34 @@ def _db_integrity_ok(path: Path) -> bool:
         return False
 
 
+
+
+def _write_recovery_info() -> None:
+    """Kurumun developer olmadan taşıma/geri yükleme yapabilmesi için bilgi dosyası."""
+    try:
+        info = data_dir() / "YEDEK_GERI_YUKLEME_BILGISI.txt"
+        lines = [
+            "Leta Takip Yedek Bilgisi",
+            "========================",
+            f"Ana veritabanı adı: {db_path().name}",
+            f"Ana veritabanı konumu: {db_path()}",
+            f"Yedek klasörü: {backups_dir()}",
+            "",
+            "Ek mirror klasörleri:",
+        ]
+        for d in _backup_mirror_dirs():
+            lines.append(f"- {d}")
+        lines += [
+            "",
+            "Google Drive öneri:",
+            "- Kurum Drive klasörü oluşturun (örn: LetaYonetim_Yedek)",
+            "- LETA_BACKUP_GDRIVE_DIR ortam değişkenine bu klasörü yazın",
+            "- Yeni bilgisayarda aynı klasörü işaretleyip yedekten geri dönün",
+        ]
+        info.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except Exception:
+        pass
+
 def _copy_to_mirrors(src: Path) -> None:
     for mdir in _backup_mirror_dirs():
         try:
@@ -125,6 +153,7 @@ def backup_now(prefix: str = "backup") -> str | None:
 
         # Mirror'a da yaz (lokal dizin bozulmasına karşı)
         _copy_to_mirrors(dst)
+        _write_recovery_info()
 
         # Rotasyon
         backups = sorted(bdir.glob(f"{prefix}_*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -157,6 +186,7 @@ def silent_backup() -> None:
         dst = bdir / f"backup_{ts}.db"
         shutil.copy2(str(src), str(dst))
         _copy_to_mirrors(dst)
+        _write_recovery_info()
 
         backups = sorted(bdir.glob("backup_*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
         for old in backups[30:]:

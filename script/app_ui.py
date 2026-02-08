@@ -8796,18 +8796,15 @@ class App(ttk.Window):
         try:
             ensure_user_guide_present()
             candidates = [
-                os.path.join(resource_dir(), "KULLANIM_KILAVUZU.txt"),
-                os.path.join(app_dir(), "KULLANIM_KILAVUZU.txt"),
-                os.path.join(data_dir(), "KULLANIM_KILAVUZU.txt"),
+                str(data_dir() / "KULLANIM_KILAVUZU.txt"),
+                str(app_dir() / "KULLANIM_KILAVUZU.txt"),
+                str(app_dir() / "script" / "assets" / "KULLANIM_KILAVUZU.txt"),
+                str(assets_dir() / "KULLANIM_KILAVUZU.txt"),
             ]
-            p = None
-            for c in candidates:
-                if os.path.exists(c):
-                    p = c
-                    break
-            if not p:
-                raise FileNotFoundError("KULLANIM_KILAVUZU.txt bulunamadı.")
-            open_path(p)
+            found = next((c for c in candidates if os.path.exists(c)), None)
+            if not found:
+                raise FileNotFoundError(f"Kılavuz bulunamadı. Beklenen yer: {data_dir()}")
+            open_path(found)
         except Exception as e:
             messagebox.showerror("Hata", f"Kılavuz açılamadı:\n{e}")
 
