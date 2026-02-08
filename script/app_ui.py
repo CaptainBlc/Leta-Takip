@@ -2077,7 +2077,7 @@ class App(ttk.Window):
 
         ttk.Label(
             wrapper,
-            text="Ücret takip modülü: seans, ödeme ve personel ücret kayıtlarını merkezi olarak izlemek için kullanılır.",
+            text="Açıklama: Bu ana sayfa kurumun temel modüllerine hızlı erişim sağlar.",
             font=("Segoe UI", 9),
             foreground="gray",
         ).pack(anchor=W, pady=(0, 6))
@@ -3407,7 +3407,7 @@ class App(ttk.Window):
         
         ttk.Label(
             wrapper,
-            text="Ücret takip modülü: seans, ödeme ve personel ücret kayıtlarını merkezi olarak izlemek için kullanılır.",
+            text="Açıklama: Bu modül çocuk ve personel ücret/hakediş kayıtlarını yönetir.",
             font=("Segoe UI", 9),
             foreground="gray",
         ).pack(anchor=W, pady=(0, 6))
@@ -4585,7 +4585,7 @@ class App(ttk.Window):
         
         ttk.Label(
             wrapper,
-            text="Ücret takip modülü: seans, ödeme ve personel ücret kayıtlarını merkezi olarak izlemek için kullanılır.",
+            text="Açıklama: Çocuk günlük operasyon kayıtlarını tarih/oda/personel bazında listeler.",
             font=("Segoe UI", 9),
             foreground="gray",
         ).pack(anchor=W, pady=(0, 6))
@@ -4752,7 +4752,7 @@ class App(ttk.Window):
         
         ttk.Label(
             wrapper,
-            text="Ücret takip modülü: seans, ödeme ve personel ücret kayıtlarını merkezi olarak izlemek için kullanılır.",
+            text="Açıklama: Bu modül kasa giriş/çıkış hareketlerini dönemsel raporlar.",
             font=("Segoe UI", 9),
             foreground="gray",
         ).pack(anchor=W, pady=(0, 6))
@@ -5425,7 +5425,7 @@ class App(ttk.Window):
         
         ttk.Label(
             wrapper,
-            text="Ücret takip modülü: seans, ödeme ve personel ücret kayıtlarını merkezi olarak izlemek için kullanılır.",
+            text="Açıklama: Haftalık seans planını personel bazında kaydedip dışa aktarır.",
             font=("Segoe UI", 9),
             foreground="gray",
         ).pack(anchor=W, pady=(0, 6))
@@ -5471,18 +5471,12 @@ class App(ttk.Window):
         ent_hafta.insert(0, monday.strftime("%Y-%m-%d"))
         ent_hafta.pack(side=LEFT, padx=5)
         
-        ttk.Button(filter_frame, text="📅 Hafta Seç", bootstyle="secondary",
-                   command=lambda: self._hafta_sec(ent_hafta)).pack(side=LEFT, padx=5)
-        ttk.Button(filter_frame, text="🔄 Yükle", bootstyle="primary",
-                   command=lambda: self._haftalik_program_yukle(wrapper)).pack(side=LEFT, padx=10)
         ttk.Button(filter_frame, text="💾 Kaydet", bootstyle="success",
-                   command=lambda: self._haftalik_program_kaydet(wrapper)).pack(side=LEFT, padx=5)
+                   command=lambda: self._haftalik_program_kaydet(wrapper)).pack(side=LEFT, padx=10)
+        ttk.Button(filter_frame, text="📤 Excel'e Aktar", bootstyle="info",
+                   command=lambda: self._haftalik_program_excel_aktar(wrapper)).pack(side=LEFT, padx=5)
         
-        # ✅ OTOMASYON 2: Personel seçildiğinde otomatik program yükle
-        def _otomatik_yukle(event=None):
-            if cmb_personel.get():
-                self._haftalik_program_yukle(wrapper)
-        cmb_personel.bind("<<ComboboxSelected>>", _otomatik_yukle)
+        # Personel seçimi kaydetme/dışa aktarma filtrelerinde kullanılır
         
         # Haftalık program tablosu
         program_frame = ttk.Labelframe(wrapper, text="Haftalık Program", padding=10, bootstyle="secondary")
@@ -5543,8 +5537,7 @@ class App(ttk.Window):
         wrapper._canvas = canvas
         wrapper._scrollable_frame = scrollable_frame
         
-        # İlk yükleme
-        self._haftalik_program_yukle(wrapper)
+        # İlk yükleme yapılmaz; kullanıcı kaydetme ve dışa aktarma akışını kullanır.
     
     def _hafta_sec(self, ent_hafta):
         """Hafta seçimi için takvim penceresi"""
@@ -5575,6 +5568,59 @@ class App(ttk.Window):
         
         ttk.Button(win, text="Seç", bootstyle="primary", command=sec).pack(pady=10)
     
+    def _haftalik_program_excel_aktar(self, parent):
+        """Seçili personel ve hafta için haftalık programı Excel'e aktarır."""
+        cmb_personel = parent._cmb_personel
+        ent_hafta = parent._ent_hafta
+
+        personel = (cmb_personel.get() or "").strip()
+        hafta = self._normalize_hafta_tarihi((ent_hafta.get() or "").strip())
+        if not personel or not hafta:
+            messagebox.showwarning("Uyarı", "Lütfen personel ve hafta girin.")
+            return
+
+        try:
+            conn = self.veritabani_baglan()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT gun, saat, COALESCE(ogrenci_adi,''), COALESCE(notlar,'')
+                FROM haftalik_seans_programi
+                WHERE personel_adi=? AND hafta_baslangic_tarihi=?
+                ORDER BY CASE gun
+                    WHEN 'Pazartesi' THEN 1 WHEN 'Salı' THEN 2 WHEN 'Çarşamba' THEN 3
+                    WHEN 'Perşembe' THEN 4 WHEN 'Cuma' THEN 5 WHEN 'Cumartesi' THEN 6 WHEN 'Pazar' THEN 7
+                    ELSE 99 END,
+                    saat
+                """,
+                (personel, hafta),
+            )
+            rows = cur.fetchall()
+            conn.close()
+        except Exception as e:
+            messagebox.showerror("Hata", f"Program okunamadı\n{e}")
+            return
+
+        path = filedialog.asksaveasfilename(
+            title="Haftalık Programı Excel'e Aktar",
+            defaultextension=".xlsx",
+            initialfile=f"haftalik_program_{personel.replace(' ', '_')}_{hafta}.xlsx",
+            filetypes=[("Excel", "*.xlsx")],
+        )
+        if not path:
+            return
+
+        try:
+            df = pd.DataFrame(rows, columns=["Gün", "Saat", "Öğrenci", "Notlar"])
+            df.insert(0, "Personel", personel)
+            df.insert(1, "Hafta", hafta)
+            with pd.ExcelWriter(path, engine="openpyxl") as writer:
+                df.to_excel(writer, index=False, sheet_name="Haftalık Program")
+            messagebox.showinfo("Başarılı", "Haftalık program Excel'e aktarıldı.")
+        except Exception as e:
+            messagebox.showerror("Hata", f"Excel aktarımı başarısız\n{e}")
+            log_exception("_haftalik_program_excel_aktar", e)
+
     def _normalize_hafta_tarihi(self, raw: str) -> str:
         """Hafta başlangıç tarihini YYYY-MM-DD formatına çevirir. Veritabanı hep bu formatta tutulur."""
         if not raw or not isinstance(raw, str):
@@ -5797,7 +5843,7 @@ class App(ttk.Window):
         
         ttk.Label(
             wrapper,
-            text="Ücret takip modülü: seans, ödeme ve personel ücret kayıtlarını merkezi olarak izlemek için kullanılır.",
+            text="Açıklama: Danışan kayıtları, iletişim bilgileri ve durum yönetimi burada tutulur.",
             font=("Segoe UI", 9),
             foreground="gray",
         ).pack(anchor=W, pady=(0, 6))

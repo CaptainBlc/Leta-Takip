@@ -426,6 +426,12 @@ class DataPipeline:
                 except Exception:
                     pass
 
+            if self.table_exists("personel_ucret_takibi"):
+                try:
+                    self.cur.execute("DELETE FROM personel_ucret_takibi WHERE seans_id=?", (seans_id,))
+                except Exception:
+                    pass
+
             if record_id is not None and self.table_exists("records"):
                 self.cur.execute("DELETE FROM records WHERE id=?", (record_id,))
 
@@ -601,7 +607,7 @@ class DataPipeline:
                 odeme_sekli="",
                 gider_kategorisi="Personel",
                 record_id=None,
-                seans_id=None,
+                seans_id=seans_id,
             )
 
             # sistem günlüğü: tablo varsa yaz
@@ -810,7 +816,7 @@ class DataPipeline:
                 odeme_sekli="",
                 gider_kategorisi="Personel",
                 record_id=None,
-                seans_id=None,
+                seans_id=seans_id,
             )
             if self.table_exists("sistem_gunlugu"):
                 self.cur.execute(
@@ -866,10 +872,11 @@ class DataPipeline:
 
             personel = (personel_adi or "").strip().upper()
             tutar_val = self._safe_float(tutar)
+            seans_id = None
 
             if ucret_takibi_id and self.table_exists("personel_ucret_takibi"):
                 self.cur.execute(
-                    "SELECT personel_adi, COALESCE(personel_ucreti,0), COALESCE(odeme_durumu,'beklemede') FROM personel_ucret_takibi WHERE id=?",
+                    "SELECT personel_adi, COALESCE(personel_ucreti,0), COALESCE(odeme_durumu,'beklemede'), COALESCE(seans_id,0) FROM personel_ucret_takibi WHERE id=?",
                     (ucret_takibi_id,),
                 )
                 row = self.cur.fetchone()
@@ -878,6 +885,7 @@ class DataPipeline:
                     return False
                 personel = (row[0] or personel).strip().upper()
                 tutar_val = self._safe_float(row[1] if row[1] is not None else tutar_val)
+                seans_id = int(row[3] or 0) or None
                 self.cur.execute(
                     "UPDATE personel_ucret_takibi SET odeme_durumu='odendi', odeme_tarihi=? WHERE id=?",
                     (self._today(), ucret_takibi_id),
@@ -895,7 +903,7 @@ class DataPipeline:
                 odeme_sekli="",
                 gider_kategorisi="Personel",
                 record_id=None,
-                seans_id=None,
+                seans_id=seans_id,
             )
 
             if self.table_exists("sistem_gunlugu"):
