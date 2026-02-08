@@ -25,6 +25,7 @@ class App(ttk.Window):
         self.resizable(False, False)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.report_callback_exception = self._tk_report_callback_exception
+        self.bind_class("Toplevel", "<Map>", self._auto_adjust_mapped_toplevel, add="+")
         # Logo (varsa) - GC olmaması için referans tutuyoruz
         self._logo_small = load_logo_photo(28, 28)
         self._logo_big = load_logo_photo(80, 80)
@@ -60,6 +61,46 @@ class App(ttk.Window):
     
     def _on_close(self):
         self.destroy()
+
+    def _fit_window_to_screen(self, win):
+        """Pencereyi ekran sınırlarına sığdır ve ortala (tüm popup'lar görünür kalsın)."""
+        try:
+            win.update_idletasks()
+            sw = max(1, int(win.winfo_screenwidth() or 1))
+            sh = max(1, int(win.winfo_screenheight() or 1))
+
+            ww = max(320, int(win.winfo_width() or 320))
+            wh = max(220, int(win.winfo_height() or 220))
+
+            max_w = max(320, sw - 60)
+            max_h = max(220, sh - 100)
+            ww = min(ww, max_w)
+            wh = min(wh, max_h)
+
+            x = max(0, (sw - ww) // 2)
+            y = max(0, (sh - wh) // 2)
+            win.geometry(f"{ww}x{wh}+{x}+{y}")
+            try:
+                win.minsize(min(ww, 420), min(wh, 260))
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _auto_adjust_mapped_toplevel(self, event=None):
+        """Açılan popup'ları otomatik ekrana sığdırır."""
+        try:
+            w = event.widget if event is not None else None
+            if not isinstance(w, tk.Toplevel):
+                return
+            if w is self:
+                return
+            if getattr(w, "_auto_screen_fitted", False):
+                return
+            self._fit_window_to_screen(w)
+            w._auto_screen_fitted = True
+        except Exception:
+            pass
     def popup_personel_avans(self, **kwargs):
         """Personel Avans/Ekstra Ödeme Penceresi"""
         win = ttk.Toplevel(self)
@@ -2277,7 +2318,7 @@ class App(ttk.Window):
         top = ttk.Labelframe(self.tab_records, text="Yeni Seans Kaydı (Tarih, Danışan Adı, Terapist, Alınacak Ücret, Alınan Ücret, Kalan Borç)", padding=16, bootstyle="primary")
         top.pack(fill=X, pady=(0, 12))
 
-        # Tabloya göre: Tarih, Danışan Adı, Terapist (saat haftalık programda; formda yok)
+        # Tabloya göre: Tarih, Danışan Adı, Terapist (saat otomatik atanır; formda yok)
         ttk.Label(top, text="Tarih:", font=("Segoe UI", 10, "bold")).grid(row=0, column=0, padx=8, pady=8, sticky=W)
         self.tarih_var = ttk.StringVar(value=datetime.datetime.now().strftime("%d.%m.%Y"))
         ttk.Entry(top, textvariable=self.tarih_var, width=16, font=("Segoe UI", 10)).grid(
@@ -2319,7 +2360,7 @@ class App(ttk.Window):
                     kullanici_id = self.kullanici[0] if self.kullanici else None
                     pipeline = DataPipeline(conn, kullanici_id)
                     
-                    # Enterprise Smart Defaults: Tek metod çağrısı ile tüm bilgileri al (saat haftalık programda; varsayılan 09:00)
+                    # Enterprise Smart Defaults: Tek metod çağrısı ile tüm bilgileri al (varsayılan saat 09:00)
                     try:
                         tarih = self._tarih_db()
                         saat = "09:00"
@@ -2365,7 +2406,7 @@ class App(ttk.Window):
         self.ent_not = ttk.Entry(top, width=50, font=("Segoe UI", 10))
         self.ent_not.grid(row=1, column=5, columnspan=2, padx=8, pady=8, sticky=W+E)
         
-        info_label = ttk.Label(top, text="ℹ️ Alınan ücret otomatik dolar (istersen değiştirebilirsin). Saat haftalık programda.", 
+        info_label = ttk.Label(top, text="ℹ️ Alınan ücret otomatik dolar (istersen değiştirebilirsin). Seans kaydı haftalık programdan bağımsızdır.", 
                               font=("Segoe UI", 9), foreground="gray")
         info_label.grid(row=2, column=0, columnspan=6, padx=8, pady=(0, 8), sticky=W)
 
@@ -2905,7 +2946,7 @@ class App(ttk.Window):
         → seans_takvimi (ANA) → records → kasa_hareketleri → odeme_hareketleri → oda_doluluk
         
         ✅ SADELEŞTİRİLMİŞ: Sadece danışan, terapist, alınan ücret ve not manuel girilir.
-        Tarih, saat, hizmet bedeli ve oda otomatik belirlenir.
+        Tarih seçilir; saat otomatik atanır. Seans kaydı haftalık programdan bağımsızdır.
         """
         danisan = (self.cmb_danisan.get() or "").strip()
         terapist = (self.cmb_terapist.get() or "").strip()
@@ -2917,17 +2958,10 @@ class App(ttk.Window):
             messagebox.showwarning("Uyarı", "Lütfen terapist seçiniz!")
             return
 
-        # Seans sadece haftalık program üzerinden oluşturulur
+        # Seans kaydı haftalık programdan bağımsızdır
         tarih = self._tarih_db()
-        slot = self._haftalik_programda_seans_bul(danisan, terapist, tarih)
-        if not slot:
-            messagebox.showwarning(
-                "Haftalık Programda Bulunamadı",
-                f"{danisan} / {terapist} için seçilen tarihte haftalık program kaydı yok.\n\n"
-                "Önce HAFTALIK PROGRAM modülünden seansı planlayın.",
-            )
-            return
-        saat, oda = slot
+        saat = self._default_saat()
+        oda = ""
 
         # ✅ Hizmet bedeli kullanıcıdan alınmaz; Ücret Takibi fiyatlandırmasından otomatik gelir
         bedel = 0.0
