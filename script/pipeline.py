@@ -585,8 +585,48 @@ class DataPipeline:
             log_exception("pipeline.eski_borc_ekle", e)
             return None
 
+    def eski_borc_kayitlari_getir(self, danisan_adi: str | None = None) -> list[dict]:
+        """DB içindeki eski/yeni tüm standalone borç kayıtlarını listeler (seans bağlantısız)."""
+        out: list[dict] = []
+        if not self.table_exists("records"):
+            return out
+        try:
+            hedef = self._normalize_name((danisan_adi or "").strip()) if danisan_adi else ""
+            self.cur.execute(
+                """
+                SELECT r.id, COALESCE(r.tarih,''), COALESCE(r.danisan_adi,''), COALESCE(r.terapist,''),
+                       COALESCE(r.hizmet_bedeli,0), COALESCE(r.alinan_ucret,0), COALESCE(r.kalan_borc,0),
+                       COALESCE(r.notlar,''), COALESCE(r.seans_id,0)
+                FROM records r
+                LEFT JOIN seans_takvimi st ON st.record_id = r.id
+                WHERE COALESCE(r.seans_id,0)=0 AND st.id IS NULL
+                ORDER BY r.tarih DESC, r.id DESC
+                """
+            )
+            for rid, tarih, danisan, terapist, hizmet, alinan, kalan, notlar, seans_id in self.cur.fetchall() or []:
+                dan_n = self._normalize_name(str(danisan or ""))
+                if hedef and dan_n != hedef:
+                    continue
+                notlar_n = self._normalize_name(str(notlar or ""))
+                tur = "devir_borc" if ("DEVIR" in notlar_n and "BORC" in notlar_n) else "standalone_borc"
+                out.append({
+                    "record_id": int(rid),
+                    "tarih": tarih,
+                    "danisan": str(danisan or ""),
+                    "terapist": str(terapist or ""),
+                    "hizmet_bedeli": self._safe_float(hizmet),
+                    "alinan_ucret": self._safe_float(alinan),
+                    "kalan_borc": self._safe_float(kalan),
+                    "notlar": str(notlar or ""),
+                    "seans_id": int(seans_id or 0),
+                    "tur": tur,
+                })
+        except Exception as e:
+            log_exception("pipeline.eski_borc_kayitlari_getir", e)
+        return out
+
     def eski_borc_sil(self, record_id: int) -> bool:
-        """Hızlı finansal modülden açılan devir borcu kaydını siler (yalnızca ödeme yoksa)."""
+        """Standalone borç kaydını siler (seans bağlantısı yok + ödeme yok)."""
         if not self.table_exists("records"):
             return False
         try:
@@ -609,14 +649,20 @@ class DataPipeline:
                 return False
 
             seans_id, alinan, notlar, danisan = row
-            notlar_n = str(notlar or "").strip().upper()
-            notlar_norm = notlar_n.translate(str.maketrans("ÇĞİÖŞÜ", "CGIOSU"))
-            devir_notu_mu = "DEVIR BORC" in notlar_norm
-            if int(seans_id or 0) != 0 or not devir_notu_mu:
+            if int(seans_id or 0) != 0:
+                self._set_error("Bu kayıt bir seansa bağlı olduğu için buradan silinemez.")
                 self.conn.rollback()
                 return False
 
+            if self.table_exists("seans_takvimi"):
+                self.cur.execute("SELECT 1 FROM seans_takvimi WHERE record_id=? LIMIT 1", (rid,))
+                if self.cur.fetchone():
+                    self._set_error("Kayıt takvimle bağlantılı olduğu için buradan silinemez.")
+                    self.conn.rollback()
+                    return False
+
             if self._safe_float(alinan) > 0:
+                self._set_error("Kayıtta tahsilat bulunduğu için silinemez.")
                 self.conn.rollback()
                 return False
 
@@ -1151,6 +1197,7 @@ class DataPipeline:
             )
             borclar = self.cur.fetchall()
             if not borclar:
+                self._set_error("Danışanın açık borcu bulunamadı.")
                 self.conn.rollback()
                 return False
 
@@ -1207,41 +1254,56 @@ class DataPipeline:
             return False
 
     def toplu_odeme_kayitlari_getir(self, danisan_adi: str | None = None) -> list[dict]:
-        """Toplu ödeme kasa kayıtlarını getirir ve record eşleşmesini doğrular."""
+        """DB'deki eski/yeni toplu ödeme kayıtlarını yakalar ve record eşleşmesini doğrular."""
         out: list[dict] = []
         if not self.table_exists("kasa_hareketleri"):
             return out
         try:
-            q = (
-                "SELECT id, COALESCE(tarih,''), COALESCE(aciklama,''), COALESCE(tutar,0), COALESCE(record_id,0) "
-                "FROM kasa_hareketleri WHERE COALESCE(tip,'')='giren' "
-                "AND UPPER(COALESCE(aciklama,'')) LIKE 'TOPLU ÖDEME:%' ORDER BY id DESC"
+            self.cur.execute(
+                """
+                SELECT id, COALESCE(tarih,''), COALESCE(aciklama,''), COALESCE(tutar,0), COALESCE(record_id,0), COALESCE(tip,'')
+                FROM kasa_hareketleri
+                WHERE COALESCE(tip,'')='giren'
+                ORDER BY id DESC
+                """
             )
-            self.cur.execute(q)
             hedef = self._normalize_name((danisan_adi or "").strip()) if danisan_adi else ""
-            for kid, tarih, aciklama, tutar, rid in self.cur.fetchall() or []:
-                rid = int(rid or 0)
-                aciklama = str(aciklama or "")
-                pay = aciklama.split(":", 1)[1].strip() if ":" in aciklama else ""
-                ad = pay.split("/", 1)[0].strip() if pay else ""
-                if hedef and self._normalize_name(ad) != hedef:
+            for kid, tarih, aciklama, tutar, rid, tip in self.cur.fetchall() or []:
+                aciklama_txt = str(aciklama or "")
+                ac_norm = self._normalize_name(aciklama_txt)
+                if not any(x in ac_norm for x in ("TOPLU ODEME", "PESINAT")):
                     continue
 
+                rid = int(rid or 0)
+                dan = ""
+                if ":" in aciklama_txt:
+                    dan = aciklama_txt.split(":", 1)[1].strip().split("/", 1)[0].strip()
+
                 rec_ad = ""
+                rec_ok = False
                 if rid > 0 and self.table_exists("records"):
                     self.cur.execute("SELECT COALESCE(danisan_adi,'') FROM records WHERE id=?", (rid,))
                     rr = self.cur.fetchone()
                     rec_ad = str((rr or [""])[0] or "")
-                matched = bool(rid > 0 and rec_ad and self._normalize_name(rec_ad) == self._normalize_name(ad))
+                    rec_ok = bool(rec_ad)
+
+                if not dan and rec_ad:
+                    dan = rec_ad
+
+                if hedef and self._normalize_name(dan) != hedef:
+                    continue
+
+                matched = bool(rid > 0 and rec_ok and self._normalize_name(rec_ad) == self._normalize_name(dan))
                 out.append({
                     "kasa_id": int(kid),
                     "tarih": tarih,
-                    "aciklama": aciklama,
+                    "aciklama": aciklama_txt,
                     "tutar": self._safe_float(tutar),
                     "record_id": rid,
-                    "danisan": ad,
+                    "danisan": dan,
                     "record_danisan": rec_ad,
                     "matched": matched,
+                    "tip": str(tip or ""),
                 })
         except Exception as e:
             log_exception("pipeline.toplu_odeme_kayitlari_getir", e)
@@ -1259,10 +1321,14 @@ class DataPipeline:
             if not row:
                 return False
             aciklama, tip = row
-            if str(tip or "") != "giren" or not str(aciklama or "").upper().startswith("TOPLU ÖDEME:"):
-                self._set_error("Seçilen kasa kaydı toplu ödeme kaydı değil.")
+            ac_norm = self._normalize_name(str(aciklama or ""))
+            if str(tip or "") != "giren" or not any(x in ac_norm for x in ("TOPLU ODEME", "PESINAT")):
+                self._set_error("Seçilen kasa kaydı toplu ödeme/peşinat kaydı değil.")
                 return False
-            return self.kasa_hareket_sil(int(kasa_id))
+            ok = self.kasa_hareket_sil(int(kasa_id))
+            if not ok:
+                self._set_error(self.get_last_error() or "Toplu ödeme hareketi silinemedi.")
+            return ok
         except Exception as e:
             log_exception("pipeline.toplu_odeme_hareket_sil", e)
             return False

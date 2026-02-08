@@ -2433,6 +2433,7 @@ class App(ttk.Window):
         ttk.Button(fin_frame, text="🗑️ Eski Borç Sil", bootstyle="secondary", command=self.safe_call(self.popup_eski_borc_sil, "popup_eski_borc_sil")).pack(side=LEFT, padx=10)
         ttk.Button(fin_frame, text="💳 Toplu Ödeme Al (Bakiyeden Düş)", bootstyle="success", command=self.popup_toplu_odeme).pack(side=LEFT, padx=10)
         ttk.Button(fin_frame, text="🧩 Toplu Ödeme Yönetimi", bootstyle="info", command=self.safe_call(self.popup_toplu_odeme_yonet, "popup_toplu_odeme_yonet")).pack(side=LEFT, padx=10)
+        ttk.Button(fin_frame, text="🛡️ Veri Doğrulama Modülü", bootstyle="secondary", command=self.safe_call(self.popup_veri_dogrulama_modulu, "popup_veri_dogrulama_modulu")).pack(side=LEFT, padx=10)
         ttk.Label(top, text="Danışan Adı:", font=("Segoe UI", 10, "bold")).grid(row=0, column=2, padx=8, pady=8, sticky=W)
         danisan_frame = ttk.Frame(top)
         danisan_frame.grid(row=0, column=3, padx=8, pady=8, sticky=W)
@@ -8209,28 +8210,21 @@ class App(ttk.Window):
             conn = None
             try:
                 conn = self.veritabani_baglan()
-                params = []
-                where_extra = ""
-                sql = (
-                    "SELECT id, COALESCE(tarih,''), COALESCE(danisan_adi,''), COALESCE(hizmet_bedeli,0), "
-                    "COALESCE(alinan_ucret,0), COALESCE(kalan_borc,0), COALESCE(notlar,'') "
-                    "FROM records WHERE COALESCE(seans_id,0)=0 "
-                    "AND ("
-                    "UPPER(COALESCE(notlar,'')) LIKE '%DEVIR BORC%' OR "
-                    "UPPER(COALESCE(notlar,'')) LIKE '%DEVİR BORÇ%' OR "
-                    "UPPER(COALESCE(notlar,'')) LIKE '%DEVIR BORÇ%' OR "
-                    "UPPER(COALESCE(notlar,'')) LIKE '%DEVİR BORC%'"
-                    ")"
-                    + where_extra
-                    + " ORDER BY tarih DESC, id DESC"
-                )
-                cur = conn.cursor()
-                cur.execute(sql, tuple(params))
-                for rid, tarih, danisan, hizmet, alinan, kalan, notlar in cur.fetchall():
+                pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
+                rows = pipeline.eski_borc_kayitlari_getir()
+                for r in rows:
                     tree.insert(
                         "",
                         END,
-                        values=(rid, tarih, danisan, format_money(hizmet), format_money(alinan), format_money(kalan), notlar),
+                        values=(
+                            r.get("record_id", 0),
+                            r.get("tarih", ""),
+                            r.get("danisan", ""),
+                            format_money(r.get("hizmet_bedeli", 0)),
+                            format_money(r.get("alinan_ucret", 0)),
+                            format_money(r.get("kalan_borc", 0)),
+                            r.get("notlar", ""),
+                        ),
                     )
             except Exception as e:
                 messagebox.showerror("Hata", f"Liste yüklenemedi:\n{e}")
@@ -8461,6 +8455,61 @@ class App(ttk.Window):
         ttk.Button(btns, text="Kapat", bootstyle="secondary", command=win.destroy).pack(side=RIGHT)
 
         _load()
+
+    def popup_veri_dogrulama_modulu(self):
+        """Merkezi doğrulama modülünün kurallarını ve davranışını kullanıcıya gösterir."""
+        win = ttk.Toplevel(self)
+        win.title("Merkezi Veri Doğrulama Modülü")
+        center_window_smart(win, 760, 520, min_w=700, min_h=480)
+
+        wrapper = ttk.Frame(win, padding=12)
+        wrapper.pack(fill=BOTH, expand=True)
+
+        ttk.Label(
+            wrapper,
+            text="🛡️ Merkezi Veri Doğrulama Modülü",
+            font=("Segoe UI", 14, "bold"),
+            bootstyle="primary",
+        ).pack(anchor=W, pady=(0, 8))
+
+        desc = (
+            "Bu modül veri girişlerinde tek merkezden kontrol uygular.\n"
+            "• Metin doğrulama: boş/kısa/uzun alanlar, riskli karakter dizileri\n"
+            "• Tutar doğrulama: min-max aralık ve sayı formatı\n"
+            "• İş kuralı doğrulama: örn. alınan ücret > hizmet bedeli engeli\n\n"
+            "Doğrulama pipeline içinde çalışır ve hata mesajları UI'da gösterilir."
+        )
+        ttk.Label(wrapper, text=desc, justify=LEFT).pack(anchor=W, pady=(0, 10))
+
+        cols = ("alan", "kural", "uygulandigi_yer")
+        tree = ttk.Treeview(wrapper, columns=cols, show="headings", height=10)
+        for c, h, w in [
+            ("alan", "Alan", 180),
+            ("kural", "Kural", 260),
+            ("uygulandigi_yer", "Uygulandığı Modüller", 280),
+        ]:
+            tree.heading(c, text=h)
+            tree.column(c, width=w, anchor=W)
+        tree.pack(fill=BOTH, expand=True)
+
+        rows = [
+            ("Danışan/Terapist", "Boş bırakılamaz, min-max uzunluk, riskli ifade kontrolü", "Seans, Toplu Ödeme, Eski Borç"),
+            ("Tutar", "0'dan büyük, üst limit kontrolü", "Ödeme, Kasa, Eski Borç, Toplu Ödeme"),
+            ("Seans Ücreti", "Alınan ücret > hizmet bedeli olamaz", "Seans kayıt"),
+            ("Kasa Tipi", "Sadece giren/cikan kabul edilir", "Manuel kasa girişi"),
+            ("Toplu Ödeme Kayıtları", "Toplu ödeme/peşinat açıklaması eşleşme kontrolü", "Toplu Ödeme Yönetimi"),
+        ]
+        for r in rows:
+            tree.insert("", END, values=r)
+
+        info = ttk.Label(
+            wrapper,
+            text="Not: Son doğrulama hatası işlem bazında kullanıcıya gösterilir (pipeline.get_last_error).",
+            bootstyle="secondary",
+        )
+        info.pack(anchor=W, pady=(8, 0))
+
+        ttk.Button(wrapper, text="Kapat", bootstyle="secondary", command=win.destroy).pack(anchor=E, pady=(10, 0))
 
     def eski_veri_migration(self):
         """
