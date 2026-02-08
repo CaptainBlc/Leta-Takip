@@ -8,7 +8,7 @@ on:
         required: true
         default: "1.3"
       source_ref:
-        description: "Build source branch/tag/SHA (e.g. codex or develop)"
+        description: "Build source branch/tag/SHA (e.g. codex/feature-x, develop, v1.3.1)"
         required: false
         default: ""
   push:
@@ -22,7 +22,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.source_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Resolve source ref (Windows)
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          $ref = "${{ github.event.inputs.source_ref }}".Trim()
+          if ([string]::IsNullOrWhiteSpace($ref)) {
+            Write-Host "source_ref boş; tetikleyen commit/ref kullanılacak."
+            exit 0
+          }
+
+          Write-Host "source_ref deneniyor: $ref"
+          git fetch --tags --force origin
+
+          $headOk = (git ls-remote --heads origin $ref)
+          $tagOk = (git ls-remote --tags origin $ref)
+
+          if ($headOk -or $tagOk) {
+            git checkout --force $ref
+            Write-Host "Checkout başarılı: $ref"
+          } else {
+            Write-Warning "source_ref '$ref' bulunamadı. Workflow tetikleyen commit/ref ile devam ediliyor."
+          }
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -57,7 +80,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.source_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Resolve source ref (macOS)
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          REF="${{ github.event.inputs.source_ref }}"
+          REF="$(echo "$REF" | xargs)"
+
+          if [ -z "$REF" ]; then
+            echo "source_ref boş; tetikleyen commit/ref kullanılacak."
+            exit 0
+          fi
+
+          echo "source_ref deneniyor: $REF"
+          git fetch --tags --force origin
+
+          if git ls-remote --exit-code --heads origin "$REF" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "$REF" >/dev/null 2>&1; then
+            git checkout --force "$REF"
+            echo "Checkout başarılı: $REF"
+          else
+            echo "::warning::source_ref '$REF' bulunamadı. Workflow tetikleyen commit/ref ile devam ediliyor."
+          fi
 
       - name: Setup Python
         uses: actions/setup-python@v5
