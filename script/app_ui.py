@@ -8182,7 +8182,7 @@ class App(ttk.Window):
             font=("Segoe UI", 10, "bold"),
         ).pack(anchor=W, padx=12, pady=(12, 6))
 
-        cols = ("rid", "tarih", "danisan", "hizmet", "alinan", "kalan", "not")
+        cols = ("rid", "tarih", "danisan", "hizmet", "alinan", "kalan", "tur", "durum", "not")
         tree = ttk.Treeview(win, columns=cols, show="headings", height=14)
         headers = [
             ("rid", "Record ID", 85),
@@ -8191,7 +8191,9 @@ class App(ttk.Window):
             ("hizmet", "Borç", 110),
             ("alinan", "Alınan", 110),
             ("kalan", "Kalan", 110),
-            ("not", "Not", 220),
+            ("tur", "Tür", 110),
+            ("durum", "Durum", 120),
+            ("not", "Not", 180),
         ]
         for c, h, w in headers:
             tree.heading(c, text=h)
@@ -8223,6 +8225,8 @@ class App(ttk.Window):
                             format_money(r.get("hizmet_bedeli", 0)),
                             format_money(r.get("alinan_ucret", 0)),
                             format_money(r.get("kalan_borc", 0)),
+                            "Devir" if r.get("tur") == "devir_borc" else "Kayıt",
+                            "Silinebilir" if r.get("silinebilir") else "Kısıtlı",
                             r.get("notlar", ""),
                         ),
                     )
@@ -8349,7 +8353,7 @@ class App(ttk.Window):
         top.pack(fill=X)
         ttk.Label(top, text="Toplu ödeme kayıtları (eşleşme kontrolü)", font=("Segoe UI", 11, "bold")).pack(side=LEFT)
 
-        cols = ("kasa_id", "tarih", "danisan", "record_id", "record_danisan", "tutar", "durum", "aciklama")
+        cols = ("kasa_id", "tarih", "danisan", "record_id", "record_danisan", "tutar", "kayit_turu", "durum", "aciklama")
         tree = ttk.Treeview(win, columns=cols, show="headings", height=16)
         headers = [
             ("kasa_id", "Kasa ID", 80),
@@ -8358,8 +8362,9 @@ class App(ttk.Window):
             ("record_id", "Record ID", 85),
             ("record_danisan", "Record Danışan", 170),
             ("tutar", "Tutar", 110),
+            ("kayit_turu", "Kayıt Türü", 110),
             ("durum", "Eşleşme", 100),
-            ("aciklama", "Açıklama", 260),
+            ("aciklama", "Açıklama", 220),
         ]
         for c, h, w in headers:
             tree.heading(c, text=h)
@@ -8395,6 +8400,7 @@ class App(ttk.Window):
                             r.get("record_id", 0),
                             r.get("record_danisan", ""),
                             format_money(r.get("tutar", 0)),
+                            r.get("kayit_turu", ""),
                             durum,
                             r.get("aciklama", ""),
                         ),
@@ -8424,7 +8430,7 @@ class App(ttk.Window):
             if not kasa_id:
                 messagebox.showwarning("Uyarı", "Lütfen silinecek toplu ödeme kaydını seçin.")
                 return
-            if not messagebox.askyesno("Onay", "Seçili toplu ödeme kaydı silinsin mi?\n(Borç/ödeme dengesi geri alınacaktır.)"):
+            if not messagebox.askyesno("Onay", "Seçili tahsilat kaydı silinsin mi?\n(Borç/ödeme dengesi geri alınacaktır.)"):
                 return
             conn = None
             try:
