@@ -1708,10 +1708,12 @@ class App(ttk.Window):
         nb.add(tab_records, text="Seans / Records")
         nb.add(tab_kasa, text="Kasa Defteri")
 
-        cols_r = ("SeansID", "Tarih", "Saat", "Danışan", "Terapist", "Seans Ücreti", "Alınan Ödeme", "Kalan Borç", "Not")
+        cols_r = ("KaynakTip", "KaynakID", "SeansID", "Tarih", "Saat", "Danışan", "Terapist", "Seans Ücreti", "Alınan Ödeme", "Kalan Borç", "Not")
         tree_r = ttk.Treeview(tab_records, columns=cols_r, show="headings", style="Strong.Treeview", selectmode="extended")
         for c in cols_r:
             tree_r.heading(c, text=c)
+        tree_r.column("KaynakTip", width=0, stretch=False)
+        tree_r.column("KaynakID", width=0, stretch=False)
         tree_r.column("SeansID", width=0, stretch=False)
         tree_r.column("Tarih", width=95, anchor="center")
         tree_r.column("Saat", width=65, anchor="center")
@@ -1751,46 +1753,144 @@ class App(ttk.Window):
                 if self.kullanici_yetki == "kurum_muduru" or not self.kullanici_terapist:
                     df = pd.read_sql_query(
                         """
-                        SELECT
-                            st.id AS seans_id,
-                            st.tarih,
-                            COALESCE(st.saat, '') AS saat,
-                            COALESCE(r.danisan_adi, st.danisan_adi, '') AS danisan_adi,
-                            COALESCE(r.terapist, st.terapist, '') AS terapist,
-                            COALESCE(r.hizmet_bedeli, 0) AS seans_ucreti,
-                            COALESCE(r.alinan_ucret, 0) AS alinan_odeme,
-                            COALESCE(r.kalan_borc, 0) AS kalan_borc,
-                            COALESCE(r.notlar, st.notlar, '') AS notlar
-                        FROM seans_takvimi st
-                        LEFT JOIN records r ON r.id = st.record_id OR r.seans_id = st.id
-                        WHERE st.tarih>=? AND st.tarih<=?
-                        ORDER BY st.tarih, st.saat, st.id
+                        SELECT * FROM (
+                            SELECT
+                                'seans' AS kaynak_tip,
+                                st.id AS kaynak_id,
+                                st.id AS seans_id,
+                                st.tarih AS tarih,
+                                COALESCE(st.saat, '') AS saat,
+                                COALESCE(r.danisan_adi, st.danisan_adi, '') AS danisan_adi,
+                                COALESCE(r.terapist, st.terapist, '') AS terapist,
+                                COALESCE(r.hizmet_bedeli, 0) AS seans_ucreti,
+                                COALESCE(r.alinan_ucret, 0) AS alinan_odeme,
+                                COALESCE(r.kalan_borc, 0) AS kalan_borc,
+                                COALESCE(r.notlar, st.notlar, '') AS notlar
+                            FROM seans_takvimi st
+                            LEFT JOIN records r ON r.id = st.record_id OR r.seans_id = st.id
+                            WHERE st.tarih>=? AND st.tarih<=?
+
+                            UNION ALL
+
+                            SELECT
+                                'eski_borc' AS kaynak_tip,
+                                r.id AS kaynak_id,
+                                0 AS seans_id,
+                                COALESCE(r.tarih,'') AS tarih,
+                                '' AS saat,
+                                COALESCE(r.danisan_adi,'') AS danisan_adi,
+                                COALESCE(r.terapist,'') AS terapist,
+                                COALESCE(r.hizmet_bedeli,0) AS seans_ucreti,
+                                COALESCE(r.alinan_ucret,0) AS alinan_odeme,
+                                CASE WHEN COALESCE(r.kalan_borc,0)>0 THEN COALESCE(r.kalan_borc,0)
+                                     ELSE MAX(0, COALESCE(r.hizmet_bedeli,0)-COALESCE(r.alinan_ucret,0)) END AS kalan_borc,
+                                ('Eski Borç | ' || COALESCE(r.notlar,'')) AS notlar
+                            FROM records r
+                            LEFT JOIN seans_takvimi st2 ON st2.record_id = r.id
+                            WHERE COALESCE(r.tarih,'')>=? AND COALESCE(r.tarih,'')<=?
+                              AND COALESCE(r.seans_id,0)=0 AND st2.id IS NULL
+                              AND (CASE WHEN COALESCE(r.kalan_borc,0)>0 THEN COALESCE(r.kalan_borc,0)
+                                        ELSE MAX(0, COALESCE(r.hizmet_bedeli,0)-COALESCE(r.alinan_ucret,0)) END) > 0
+
+                            UNION ALL
+
+                            SELECT
+                                'toplu_odeme' AS kaynak_tip,
+                                k.id AS kaynak_id,
+                                0 AS seans_id,
+                                COALESCE(k.tarih,'') AS tarih,
+                                '' AS saat,
+                                COALESCE(r.danisan_adi, TRIM(SUBSTR(COALESCE(k.aciklama,''), INSTR(COALESCE(k.aciklama,''), ':')+1)), '') AS danisan_adi,
+                                COALESCE(r.terapist, '') AS terapist,
+                                0 AS seans_ucreti,
+                                COALESCE(k.tutar,0) AS alinan_odeme,
+                                0 AS kalan_borc,
+                                ('Toplu Ödeme | ' || COALESCE(k.aciklama,'')) AS notlar
+                            FROM kasa_hareketleri k
+                            LEFT JOIN records r ON r.id = k.record_id
+                            WHERE COALESCE(k.tarih,'')>=? AND COALESCE(k.tarih,'')<=?
+                              AND LOWER(COALESCE(k.tip,'')) IN ('giren','gelir','in')
+                              AND (LOWER(COALESCE(k.aciklama,'')) LIKE '%toplu%'
+                                   OR LOWER(COALESCE(k.aciklama,'')) LIKE '%peşinat%'
+                                   OR LOWER(COALESCE(k.aciklama,'')) LIKE '%pesinat%')
+                        ) q
+                        ORDER BY q.tarih, q.saat, q.kaynak_id
                         """,
-                        conn, params=(bas, bit)
+                        conn, params=(bas, bit, bas, bit, bas, bit)
                     )
                 else:
                     df = pd.read_sql_query(
                         """
-                        SELECT
-                            st.id AS seans_id,
-                            st.tarih,
-                            COALESCE(st.saat, '') AS saat,
-                            COALESCE(r.danisan_adi, st.danisan_adi, '') AS danisan_adi,
-                            COALESCE(r.terapist, st.terapist, '') AS terapist,
-                            COALESCE(r.hizmet_bedeli, 0) AS seans_ucreti,
-                            COALESCE(r.alinan_ucret, 0) AS alinan_odeme,
-                            COALESCE(r.kalan_borc, 0) AS kalan_borc,
-                            COALESCE(r.notlar, st.notlar, '') AS notlar
-                        FROM seans_takvimi st
-                        LEFT JOIN records r ON r.id = st.record_id OR r.seans_id = st.id
-                        WHERE st.tarih>=? AND st.tarih<=? AND COALESCE(r.terapist, st.terapist, '')=?
-                        ORDER BY st.tarih, st.saat, st.id
+                        SELECT * FROM (
+                            SELECT
+                                'seans' AS kaynak_tip,
+                                st.id AS kaynak_id,
+                                st.id AS seans_id,
+                                st.tarih AS tarih,
+                                COALESCE(st.saat, '') AS saat,
+                                COALESCE(r.danisan_adi, st.danisan_adi, '') AS danisan_adi,
+                                COALESCE(r.terapist, st.terapist, '') AS terapist,
+                                COALESCE(r.hizmet_bedeli, 0) AS seans_ucreti,
+                                COALESCE(r.alinan_ucret, 0) AS alinan_odeme,
+                                COALESCE(r.kalan_borc, 0) AS kalan_borc,
+                                COALESCE(r.notlar, st.notlar, '') AS notlar
+                            FROM seans_takvimi st
+                            LEFT JOIN records r ON r.id = st.record_id OR r.seans_id = st.id
+                            WHERE st.tarih>=? AND st.tarih<=? AND COALESCE(r.terapist, st.terapist, '')=?
+
+                            UNION ALL
+
+                            SELECT
+                                'eski_borc' AS kaynak_tip,
+                                r.id AS kaynak_id,
+                                0 AS seans_id,
+                                COALESCE(r.tarih,'') AS tarih,
+                                '' AS saat,
+                                COALESCE(r.danisan_adi,'') AS danisan_adi,
+                                COALESCE(r.terapist,'') AS terapist,
+                                COALESCE(r.hizmet_bedeli,0) AS seans_ucreti,
+                                COALESCE(r.alinan_ucret,0) AS alinan_odeme,
+                                CASE WHEN COALESCE(r.kalan_borc,0)>0 THEN COALESCE(r.kalan_borc,0)
+                                     ELSE MAX(0, COALESCE(r.hizmet_bedeli,0)-COALESCE(r.alinan_ucret,0)) END AS kalan_borc,
+                                ('Eski Borç | ' || COALESCE(r.notlar,'')) AS notlar
+                            FROM records r
+                            LEFT JOIN seans_takvimi st2 ON st2.record_id = r.id
+                            WHERE COALESCE(r.tarih,'')>=? AND COALESCE(r.tarih,'')<=?
+                              AND COALESCE(r.seans_id,0)=0 AND st2.id IS NULL
+                              AND COALESCE(r.terapist,'')=?
+                              AND (CASE WHEN COALESCE(r.kalan_borc,0)>0 THEN COALESCE(r.kalan_borc,0)
+                                        ELSE MAX(0, COALESCE(r.hizmet_bedeli,0)-COALESCE(r.alinan_ucret,0)) END) > 0
+
+                            UNION ALL
+
+                            SELECT
+                                'toplu_odeme' AS kaynak_tip,
+                                k.id AS kaynak_id,
+                                0 AS seans_id,
+                                COALESCE(k.tarih,'') AS tarih,
+                                '' AS saat,
+                                COALESCE(r.danisan_adi, TRIM(SUBSTR(COALESCE(k.aciklama,''), INSTR(COALESCE(k.aciklama,''), ':')+1)), '') AS danisan_adi,
+                                COALESCE(r.terapist, '') AS terapist,
+                                0 AS seans_ucreti,
+                                COALESCE(k.tutar,0) AS alinan_odeme,
+                                0 AS kalan_borc,
+                                ('Toplu Ödeme | ' || COALESCE(k.aciklama,'')) AS notlar
+                            FROM kasa_hareketleri k
+                            LEFT JOIN records r ON r.id = k.record_id
+                            WHERE COALESCE(k.tarih,'')>=? AND COALESCE(k.tarih,'')<=?
+                              AND COALESCE(r.terapist,'')=?
+                              AND LOWER(COALESCE(k.tip,'')) IN ('giren','gelir','in')
+                              AND (LOWER(COALESCE(k.aciklama,'')) LIKE '%toplu%'
+                                   OR LOWER(COALESCE(k.aciklama,'')) LIKE '%peşinat%'
+                                   OR LOWER(COALESCE(k.aciklama,'')) LIKE '%pesinat%')
+                        ) q
+                        ORDER BY q.tarih, q.saat, q.kaynak_id
                         """,
-                        conn, params=(bas, bit, self.kullanici_terapist)
+                        conn, params=(bas, bit, self.kullanici_terapist, bas, bit, self.kullanici_terapist, bas, bit, self.kullanici_terapist)
                     )
             except Exception as e:
                 log_exception("_rapor_pencere_records", e)
-                df = pd.DataFrame(columns=["seans_id", "tarih", "saat", "danisan_adi", "terapist", "seans_ucreti", "alinan_odeme", "kalan_borc", "notlar"])
+                df = pd.DataFrame(columns=["kaynak_tip", "kaynak_id", "seans_id", "tarih", "saat", "danisan_adi", "terapist", "seans_ucreti", "alinan_odeme", "kalan_borc", "notlar"])
             finally:
                 try:
                     if conn is not None:
@@ -1800,7 +1900,7 @@ class App(ttk.Window):
 
             for _, r in df.iterrows():
                 tree_r.insert("", END, values=(
-                    int(r.get("seans_id", 0) or 0), r.get("tarih", ""), r.get("saat", ""), r.get("danisan_adi", ""),
+                    r.get("kaynak_tip", "seans") or "seans", int(r.get("kaynak_id", 0) or 0), int(r.get("seans_id", 0) or 0), r.get("tarih", ""), r.get("saat", ""), r.get("danisan_adi", ""),
                     r.get("terapist", ""), format_money(r.get("seans_ucreti", 0) or 0), format_money(r.get("alinan_odeme", 0) or 0),
                     format_money(r.get("kalan_borc", 0) or 0), r.get("notlar", "") or ""
                 ))
@@ -1858,22 +1958,31 @@ class App(ttk.Window):
                 pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
                 if sec_tab == str(tab_records):
                     sec = list(tree_r.selection())
-                    mod = _secim_modu(len(sec), "seans kaydı")
+                    mod = _secim_modu(len(sec), "rapor kaydı")
                     if not mod:
                         return
                     hedef = sec[:1] if mod == "tek" else sec
                     silinen = 0
                     for iid in hedef:
                         vals = tree_r.item(iid).get("values") or []
-                        seans_id = int(vals[0] or 0) if vals else 0
-                        if seans_id <= 0:
+                        if len(vals) < 3:
                             continue
-                        if pipeline.kayit_sil(seans_id):
+                        kaynak_tip = str(vals[0] or "seans")
+                        kaynak_id = int(vals[1] or 0)
+                        seans_id = int(vals[2] or 0)
+                        ok = False
+                        if kaynak_tip == "seans" and seans_id > 0:
+                            ok = pipeline.kayit_sil(seans_id)
+                        elif kaynak_tip == "eski_borc" and kaynak_id > 0:
+                            ok = pipeline.eski_borc_sil(kaynak_id)
+                        elif kaynak_tip == "toplu_odeme" and kaynak_id > 0:
+                            ok = pipeline.kasa_hareketi_sil(kaynak_id)
+                        if ok:
                             silinen += 1
                     if silinen <= 0:
-                        messagebox.showwarning("Uyarı", "Silinebilecek uygun seans kaydı bulunamadı.")
+                        messagebox.showwarning("Uyarı", "Silinebilecek uygun kayıt bulunamadı.")
                         return
-                    messagebox.showinfo("Tamam", f"{silinen} seans kaydı silindi.")
+                    messagebox.showinfo("Tamam", f"{silinen} kayıt silindi.")
                     self.kayitlari_listele()
                     self._refresh_borc_tables()
                     _load_records(); _load_kasa(); self._refresh_open_reports()
@@ -2430,9 +2539,7 @@ class App(ttk.Window):
         fin_frame.pack(fill=X, pady=10, padx=5)
 
         ttk.Button(fin_frame, text="📉 Eski Borç Yükle (Devir)", bootstyle="danger", command=self.safe_call(self.popup_eski_borc, "popup_eski_borc")).pack(side=LEFT, padx=10)
-        ttk.Button(fin_frame, text="🗑️ Eski Borç Sil", bootstyle="secondary", command=self.safe_call(self.popup_eski_borc_sil, "popup_eski_borc_sil")).pack(side=LEFT, padx=10)
         ttk.Button(fin_frame, text="💳 Toplu Ödeme Al (Bakiyeden Düş)", bootstyle="success", command=self.popup_toplu_odeme).pack(side=LEFT, padx=10)
-        ttk.Button(fin_frame, text="🧩 Toplu Ödeme Yönetimi", bootstyle="info", command=self.safe_call(self.popup_toplu_odeme_yonet, "popup_toplu_odeme_yonet")).pack(side=LEFT, padx=10)
         ttk.Button(fin_frame, text="🛡️ Veri Doğrulama Modülü", bootstyle="secondary", command=self.safe_call(self.popup_veri_dogrulama_modulu, "popup_veri_dogrulama_modulu")).pack(side=LEFT, padx=10)
         ttk.Label(top, text="Danışan Adı:", font=("Segoe UI", 10, "bold")).grid(row=0, column=2, padx=8, pady=8, sticky=W)
         danisan_frame = ttk.Frame(top)
