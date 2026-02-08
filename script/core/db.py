@@ -131,6 +131,107 @@ def _ensure_minimum_schema(conn: sqlite3.Connection) -> None:
         """
     )
 
+    # Fiyatlandırma ve ücret takip modülleri
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ogrenci_personel_fiyatlandirma (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ogrenci_id INTEGER NOT NULL,
+            personel_adi TEXT NOT NULL,
+            seans_ucreti REAL NOT NULL,
+            baslangic_tarihi TEXT,
+            bitis_tarihi TEXT,
+            aktif INTEGER DEFAULT 1,
+            zam_orani REAL DEFAULT 0,
+            zam_uygulama_tarihi TEXT,
+            olusturma_tarihi TEXT,
+            guncelleme_tarihi TEXT
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_fiyat_ogrenci ON ogrenci_personel_fiyatlandirma(ogrenci_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_fiyat_personel ON ogrenci_personel_fiyatlandirma(personel_adi)")
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS personel_ucret_takibi (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            personel_adi TEXT NOT NULL,
+            seans_id INTEGER,
+            tarih TEXT NOT NULL,
+            seans_ucreti REAL NOT NULL,
+            personel_ucreti REAL NOT NULL,
+            ucret_orani REAL DEFAULT 0,
+            odeme_durumu TEXT DEFAULT 'beklemede',
+            odeme_tarihi TEXT,
+            aciklama TEXT,
+            olusturma_tarihi TEXT,
+            olusturan_kullanici_id INTEGER
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_personel_ucret_personel ON personel_ucret_takibi(personel_adi)")
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS cocuk_gunluk_takip (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cocuk_id INTEGER NOT NULL,
+            tarih TEXT NOT NULL,
+            oda_adi TEXT,
+            personel_adi TEXT NOT NULL,
+            seans_id INTEGER,
+            notlar TEXT,
+            olusturma_tarihi TEXT
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_cocuk_gunluk_tarih ON cocuk_gunluk_takip(tarih)")
+
+    # Fiyat politikası (otomatik ücret)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pricing_policy (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            student_id INTEGER,
+            teacher_name TEXT,
+            price REAL NOT NULL,
+            created_at TEXT,
+            updated_at TEXT,
+            UNIQUE(student_id, teacher_name)
+        )
+        """
+    )
+
+    # Audit trail / sistem logları
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audit_trail (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            action_type TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_id INTEGER,
+            kullanici_id INTEGER,
+            details TEXT,
+            ip_address TEXT,
+            olusturma_tarihi TEXT NOT NULL
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_audit_tarih ON audit_trail(olusturma_tarihi)")
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sistem_gunlugu (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tarih TEXT,
+            olay TEXT,
+            aciklama TEXT,
+            olusturma_tarihi TEXT
+        )
+        """
+    )
+
 
 def connect_db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
