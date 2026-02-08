@@ -3144,7 +3144,7 @@ class App(ttk.Window):
         try:
             conn = self.veritabani_baglan()
             cur = conn.cursor()
-            where = []
+            where = ["(put.seans_id IS NULL OR st.id IS NOT NULL)"]
             params = []
             
             # Role göre filtre (eğitim görevlisi sadece kendi kayıtlarını görür)
@@ -3920,7 +3920,8 @@ class App(ttk.Window):
             conn = self.veritabani_baglan()
             cur = conn.cursor()
             
-            where = []
+            # seans silinmişse bağlı personel ücret kaydını listede göstermeyelim
+            where = ["(put.seans_id IS NULL OR st.id IS NOT NULL)"]
             params = []
             
             if personel_filtre:
@@ -3942,6 +3943,7 @@ class App(ttk.Window):
                     put.odeme_durumu,
                     put.odeme_tarihi
                 FROM personel_ucret_takibi put
+                LEFT JOIN seans_takvimi st ON st.id = put.seans_id
             """
             if where:
                 sql += " WHERE " + " AND ".join(where)
@@ -4501,10 +4503,13 @@ class App(ttk.Window):
                 cur = conn.cursor()
                 cur.execute(
                     """
-                    SELECT id, tarih, seans_ucreti, personel_ucreti
-                    FROM personel_ucret_takibi
-                    WHERE personel_adi = ? AND odeme_durumu = 'beklemede'
-                    ORDER BY tarih DESC
+                    SELECT put.id, put.tarih, put.seans_ucreti, put.personel_ucreti
+                    FROM personel_ucret_takibi put
+                    LEFT JOIN seans_takvimi st ON st.id = put.seans_id
+                    WHERE put.personel_adi = ?
+                      AND put.odeme_durumu = 'beklemede'
+                      AND (put.seans_id IS NULL OR st.id IS NOT NULL)
+                    ORDER BY put.tarih DESC
                     """,
                     (personel,)
                 )
