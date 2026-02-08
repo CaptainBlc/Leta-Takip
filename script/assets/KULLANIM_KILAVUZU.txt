@@ -1,76 +1,72 @@
-LETA TAKİP – KULLANIM KILAVUZU (TEMEL + PRATİK)
-================================================
+LETA TAKİP – GÜNCEL KULLANIM KILAVUZU (Sade ve Pratik)
+========================================================
 
-Bu kılavuz teknik olmayan kullanıcılar için hazırlanmıştır.
-Amaç: günlük işlemleri güvenli ve hızlı şekilde yapabilmeniz.
+Bu kılavuz teknik bilgisi az olan kullanıcılar için hazırlanmıştır.
+Amaç: günlük işlemleri kısa adımlarla güvenli şekilde yapmak.
 
-1) UYGULAMAYA GİRİŞ
--------------------
-- Uygulamayı açın.
-- Kullanıcı adı + şifre ile giriş yapın.
-- İlk kurulumda "Kurum Müdürü" hesabı oluşturulur.
+1) HIZLI BAŞLANGIÇ
+------------------
+- Uygulamayı açın, kullanıcı adı/şifre ile giriş yapın.
+- Ana ekranda önce "SEANS TAKİP" ve "KASA DEFTERİ" bölümlerini tanıyın.
+- Yardım için Seans Takip ekranındaki "📘 Kılavuz" butonunu kullanın.
 
-2) ANA MODÜLLER (KISA ÖZET)
-----------------------------
-- SEANS TAKİP:
-  Seans kaydı ekleme, ödeme ekleme, kayıt silme.
-- ÜCRET TAKİBİ:
-  Çocuk ücret/fiyat kayıtları ve personel hakediş/ödeme takibi.
-- KASA DEFTERİ:
-  Kasaya giren/çıkan para hareketleri, rapor ve excel çıktısı.
-- HAFTALIK PROGRAM:
-  Haftalık planı kaydetme ve Excel'e aktarma.
-- ÖĞRENCİ BİLGİLERİ:
-  Danışan listeleme, düzenleme, aktif/pasif, kalıcı silme.
-- AYARLAR:
-  Terapist listesi, logo yönetimi, sistem ayarları.
+2) SEANS TAKİP – EN SIK İŞLEMLER
+----------------------------------
+A) Yeni seans ekleme
+1. Tarih, danışan ve terapist seçin.
+2. Alınan ücreti girin.
+3. KAYDET'e basın.
 
-3) EN SIK YAPILAN İŞLEMLER
----------------------------
-A) Yeni seans girmek
-1. SEANS TAKİP sekmesine gelin.
-2. Tarih, danışan, terapist seçin.
-3. Alınan ücreti girin.
-4. KAYDET butonuna basın.
+B) Toplu ödeme alma (borç kapatma)
+1. "💳 Toplu Ödeme Al" butonuna basın.
+2. Danışan ve tutarı girin.
+3. Kaydedin.
+Not: Borç yoksa bu işlem kayıt oluşturmaz.
 
-B) Seansa ödeme eklemek
-1. Seans satırını seçin.
-2. "Ödeme Ekle" butonuna basın.
-3. Tutar ve ödeme türünü yazıp kaydedin.
+C) Eski borç yükleme
+1. "📉 Eski Borç Yükle" butonuna basın.
+2. Danışan ve devir borcu tutarını girin.
+3. Kaydedin.
 
-C) Personel ücret ödemesi yapmak
-1. ÜCRET TAKİBİ > Personel Ücret Takibi sayfasına girin.
-2. "Ödeme Yap" ile bekleyen kaydı seçin.
-3. Kaydettikten sonra Personel/Kasa listeleri otomatik güncellenir.
+3) RAPORLAR (GÜNLÜK / HAFTALIK / TOPLAM)
+------------------------------------------
+- Raporlar alanındaki butonlar kompakt düzendedir.
+- Rapor penceresinde iki sekme vardır:
+  1) Seans / Records
+  2) Kasa Defteri
+- Bir sekmede silinen kayıtlar açık raporlara otomatik yansır.
 
-4) SİLME İŞLEMLERİ (ÖNEMLİ)
-----------------------------
-- Seans silindiğinde bağlı ücret/kasa kayıtları da senkron temizlenir.
-- Kalıcı silme geri alınamaz.
-- Kararsızsanız önce yedek alın.
+4) SİLME İŞLEMLERİ (TEKLİ / TOPLU)
+-----------------------------------
+- Seans Takip ve rapor ekranlarında silme sırasında seçim modu sorulur:
+  - Evet  = sadece ilk seçili satır
+  - Hayır = tüm seçili satırlar
+  - İptal = vazgeç
+- Silme sonrası ilgili tablolar ve raporlar otomatik yenilenir.
 
 5) YEDEKLEME VE VERİ GÜVENLİĞİ
 -------------------------------
-- Uygulama açılışta otomatik yedek alır.
-- Yedekler "Yedekler" klasörüne yazılır.
-- Ek koruma için ikinci bir klasöre mirror yedek alınabilir:
-  LETA_BACKUP_MIRROR ortam değişkeni ayarlanabilir.
+- Ana yerel yedek klasörü:
+  Windows için: C:\Users\<kullanici>\AppData\Local\LetaYonetim\Yedekler
+- Ek mirror yedek klasörleri desteklenir:
+  - LETA_BACKUP_MIRROR
+- Google Drive senkron klasörüne ek yedek için:
+  - LETA_BACKUP_GDRIVE_DIR ortam değişkenini kurumun Google Drive klasörüne verin.
+  - Örnek: C:\Users\<kullanici>\Google Drive\My Drive\LetaYonetim_Yedek
+- Böylece cihaz arızasında veya lokal bozulmada buluttaki kopyadan geri dönüş kolaylaşır.
 
-6) SORUN OLURSA
----------------
-- Önce uygulamayı kapatıp yeniden açın.
-- "Yedek Klasörünü Aç" ile en güncel yedeği kontrol edin.
-- Hata devam ederse kurum müdürüne/teknik sorumluya şu bilgileri iletin:
-  - Hangi ekranda hata oldu?
-  - Hangi butona bastınız?
-  - Hata mesajı neydi?
-
-7) İYİ KULLANIM ÖNERİLERİ
---------------------------
-- Danışan adını tek bir formatta kullanın.
+6) KULLANICI DOSTU İPUÇLARI
+-----------------------------
+- Karmaşa yaşamamak için isimleri tek formatta girin.
 - Toplu silme öncesi mutlaka yedek alın.
-- Gün sonu Kasa Defteri raporunu kontrol edin.
+- Gün sonunda Kasa Defteri raporunu kontrol edin.
+- Anlamadığınız ekranda önce "Yenile" ve sonra "Kılavuz" kullanın.
 
-Kısa not:
-Bu sistem günlük kullanıma göre sade tasarlanmıştır.
-Bilmiyorsanız önce veri silmek yerine "Aktif/Pasif" kullanın.
+7) SORUN OLURSA
+---------------
+- Uygulamayı kapatıp yeniden açın.
+- Kasa/Seans listesini Yenile ile tazeleyin.
+- Devam eden sorunda teknik sorumluya şu bilgileri iletin:
+  - Hangi ekranda oldu?
+  - Hangi butona basıldı?
+  - Mesaj metni neydi?

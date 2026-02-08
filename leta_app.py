@@ -12305,7 +12305,7 @@ class App(ttk.Window):
         """Eskiye dönük borç (devir bakiyesi) ekler. Kurum para takibi için kayıt sisteme işlenir."""
         win = ttk.Toplevel(self)
         win.title("Eski Borç / Devir Bakiyesi Ekle")
-        center_window(win, 400, 250)
+        center_window_smart(win, 460, 320, min_w=420, min_h=300)
         
         ttk.Label(win, text="Öğrenci Seç:", font=("Segoe UI", 10, "bold")).pack(pady=5)
         values = []
@@ -12356,7 +12356,7 @@ class App(ttk.Window):
         """Toplu ödeme alma penceresi"""
         win = ttk.Toplevel(self)
         win.title("Toplu Ödeme Al")
-        center_window(win, 400, 300)
+        center_window_smart(win, 460, 360, min_w=420, min_h=330)
         
         ttk.Label(win, text="Öğrenci Seç:", font=("Segoe UI", 10, "bold")).pack(pady=5)
         

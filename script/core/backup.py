@@ -13,9 +13,45 @@ def backups_dir() -> Path:
     return data_dir() / "Yedekler"
 
 
+def _google_drive_candidates() -> list[Path]:
+    """Google Drive senkron klasörü adayları (yerel klasör senkronu)."""
+    out: list[Path] = []
+
+    env = os.environ.get("LETA_BACKUP_GDRIVE_DIR", "").strip()
+    if env:
+        try:
+            out.append(Path(env).expanduser())
+        except Exception:
+            pass
+
+    home = Path.home()
+    for rel in (
+        "Google Drive",
+        "My Drive",
+        "GoogleDrive",
+        "Google Drive/My Drive",
+    ):
+        try:
+            out.append(home / rel / "LetaYonetim_Yedek")
+        except Exception:
+            pass
+
+    # Windows'da LocalAppData altını da kontrol et
+    local = os.environ.get("LOCALAPPDATA", "").strip()
+    if local:
+        try:
+            out.append(Path(local) / "Google" / "DriveFS" / "LetaYonetim_Yedek")
+        except Exception:
+            pass
+
+    return out
+
+
 def _backup_mirror_dirs() -> list[Path]:
     """Ek yedek klasörleri (lokal bozulmaya karşı ikinci lokasyon)."""
     out: list[Path] = []
+
+    # Elle verilen mirror klasörü
     env = os.environ.get("LETA_BACKUP_MIRROR", "").strip()
     if env:
         try:
@@ -23,12 +59,34 @@ def _backup_mirror_dirs() -> list[Path]:
         except Exception:
             pass
 
+    # Varsayılan lokal mirror
     try:
-        # platform bağımsız güvenli varsayılan: home altı ayrı klasör
         out.append(Path.home() / "LetaYonetim_BackupMirror")
     except Exception:
         pass
-    return out
+
+    # Windows hedef: C:\Users\...\AppData\Local\LetaYonetim\Yedekler
+    try:
+        out.append(data_dir() / "Yedekler")
+    except Exception:
+        pass
+
+    # Google Drive senkron klasörü (kurumun kendi hesabı)
+    for gdir in _google_drive_candidates():
+        try:
+            out.append(gdir)
+        except Exception:
+            pass
+
+    # Tekilleştir
+    uniq: list[Path] = []
+    seen: set[str] = set()
+    for p in out:
+        k = str(p)
+        if k not in seen:
+            uniq.append(p)
+            seen.add(k)
+    return uniq
 
 
 def _db_integrity_ok(path: Path) -> bool:
