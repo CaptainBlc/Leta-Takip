@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 import shutil
+import importlib
 
 # Test için geçici veri dizini kullan (gerçek veriyi bozmayalım)
 TEST_DATA_DIR = tempfile.mkdtemp(prefix="leta_test_")
@@ -28,6 +29,25 @@ leta_app.data_dir = _test_data_dir
 
 def run_tests():
     errors = []
+    # --- 0) script modülleri import smoke (circular import regresyonu) ---
+    try:
+        script_dir = os.path.join(repo_root, "script")
+        if script_dir not in sys.path:
+            sys.path.insert(0, script_dir)
+
+        pipeline_mod = importlib.import_module("pipeline")
+        app_ui_mod = importlib.import_module("app_ui")
+
+        if not hasattr(pipeline_mod, "DataPipeline"):
+            errors.append("pipeline modülünde DataPipeline bulunamadı")
+        elif not hasattr(app_ui_mod, "App"):
+            errors.append("app_ui modülünde App bulunamadı")
+        else:
+            print("[OK] script importları (pipeline/app_ui) circular import yok")
+    except Exception as e:
+        errors.append(f"script import smoke: {e}")
+        print(f"[FAIL] script import smoke: {e}")
+
     # --- 1) Veritabanı başlatma ve tablolar ---
     try:
         leta_app.init_db()
