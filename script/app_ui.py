@@ -3525,7 +3525,7 @@ class App(ttk.Window):
         ttk.Button(toolbar, text="💰 Ödeme Yap", bootstyle="warning",
                    command=self.personel_ucret_odeme_yap).pack(side=LEFT, padx=5)
         ttk.Button(toolbar, text="🔄 Yenile", bootstyle="secondary",
-                   command=lambda: self._personel_ucret_listele(parent)).pack(side=LEFT, padx=5)
+                   command=lambda: (self._personel_ucret_listele(parent), self._refresh_kasa_views())).pack(side=LEFT, padx=5)
         
         # Filtreler
         filter_frame = ttk.Frame(parent)
@@ -4410,6 +4410,34 @@ class App(ttk.Window):
         
         ttk.Button(wrapper, text="✅ Talep Oluştur", bootstyle="success", command=kaydet).pack(pady=10)
     
+    def _refresh_personel_ucret_views(self):
+        """Açık Personel Ücret Takibi görünümlerini yenile."""
+        try:
+            if not hasattr(self, "tab_ucret_takibi"):
+                return
+            for child in self.tab_ucret_takibi.winfo_children():
+                if getattr(child, "_tree_personel", None):
+                    self._personel_ucret_listele(child)
+                for sub in child.winfo_children():
+                    if isinstance(sub, ttk.Notebook):
+                        for page_id in sub.tabs():
+                            page = sub.nametowidget(page_id)
+                            if hasattr(page, "_tree_personel"):
+                                self._personel_ucret_listele(page)
+        except Exception:
+            pass
+
+    def _refresh_kasa_views(self):
+        """Açık Kasa Defteri görünümlerini yenile."""
+        try:
+            if not hasattr(self, "tab_kasa"):
+                return
+            for child in self.tab_kasa.winfo_children():
+                if getattr(child, "_tree_kasa", None):
+                    self._kasa_rapor_yukle(child)
+        except Exception:
+            pass
+
     def personel_ucret_odeme_yap(self):
         """Personel ücret ödeme yapma penceresi"""
         win = ttk.Toplevel(self)
@@ -4511,8 +4539,8 @@ class App(ttk.Window):
             try:
                 conn = self.veritabani_baglan()
                 cur = conn.cursor()
-                
-                # Ücret bilgisini al
+
+                # Ücret bilgisini al (gösterim için)
                 cur.execute(
                     "SELECT personel_adi, personel_ucreti FROM personel_ucret_takibi WHERE id = ?",
                     (ucret_id,)
@@ -4522,48 +4550,28 @@ class App(ttk.Window):
                     messagebox.showerror("Hata", "Ücret kaydı bulunamadı.")
                     conn.close()
                     return
-                
+
                 personel_adi, tutar = row
-                
-                # Ödeme durumunu güncelle
-                cur.execute(
-                    """
-                    UPDATE personel_ucret_takibi
-                    SET odeme_durumu = 'odendi', odeme_tarihi = ?
-                    WHERE id = ?
-                    """,
-                    (datetime.datetime.now().strftime("%Y-%m-%d"), ucret_id)
-                )
-                
-                # ✅ FINANSAL ZEKA: Pipeline üzerinden otomatik kasa gider kaydı
+
+                # Tek transaction kaynağı: pipeline (put + kasa birlikte)
                 kullanici_id = self.kullanici[0] if self.kullanici else None
                 pipeline = DataPipeline(conn, kullanici_id)
-                pipeline.personel_ucret_odeme_kasa_entegrasyonu(
+                ok = pipeline.personel_ucret_odeme_kasa_entegrasyonu(
                     personel_adi=personel_adi,
                     tutar=tutar,
-                    ucret_takibi_id=ucret_id
+                    ucret_takibi_id=ucret_id,
                 )
-
-                conn.commit()
                 conn.close()
-                
+
+                if not ok:
+                    messagebox.showerror("Hata", "Ödeme işlemi kaydedilemedi.")
+                    return
+
                 messagebox.showinfo("Başarılı", f"Personel ücret ödemesi yapıldı!\n\n{personel_adi}: {format_money(tutar)}")
-                
+
                 yukle_liste()
-                
-                # Ücret takibi sayfasını yenile
-                try:
-                    if hasattr(self, 'tab_ucret_takibi'):
-                        for child in self.tab_ucret_takibi.winfo_children():
-                            if isinstance(child, ttk.Frame):
-                                for subchild in child.winfo_children():
-                                    if isinstance(subchild, ttk.Notebook):
-                                        for page_id in subchild.tabs():
-                                            page = subchild.nametowidget(page_id)
-                                            if hasattr(page, '_tree_personel'):
-                                                self._personel_ucret_listele(page)
-                except Exception:
-                    pass
+                self._refresh_personel_ucret_views()
+                self._refresh_kasa_views()
             except Exception as e:
                 messagebox.showerror("Hata", f"Ödeme yapılamadı:\n{e}")
                 log_exception("personel_ucret_odeme_yap", e)
