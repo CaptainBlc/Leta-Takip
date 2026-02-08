@@ -80,7 +80,7 @@ if (-not $iscc) {
 }
 
 Write-Host "   Inno Setup ile setup dosyası oluşturuluyor..." -ForegroundColor Gray
-& $iscc "installer\Leta_Setup_Windows.iss"
+& $iscc "/DAppVersion=$Version" "installer\Leta_Setup_Windows.iss"
 
 $builtSetup = Get-ChildItem -Path dist -Filter "Leta_Takip_Setup_v*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($builtSetup -and $builtSetup.Name -ne $setupNameTarget) {
