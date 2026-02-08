@@ -11,3 +11,7 @@ PERSONEL_UCRET_KURALLARI = {
 }
 
 DEFAULT_THERAPISTS: list[str] = []
+
+# Opsiyonel seed verileri (boş bırakılabilir)
+DEFAULT_THERAPIST_ROLES: dict[str, str] = {}
+DEFAULT_USERS: list[tuple[str, str, str, str, str | None]] = []
