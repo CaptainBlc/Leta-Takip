@@ -2432,6 +2432,7 @@ class App(ttk.Window):
         ttk.Button(fin_frame, text="📉 Eski Borç Yükle (Devir)", bootstyle="danger", command=self.safe_call(self.popup_eski_borc, "popup_eski_borc")).pack(side=LEFT, padx=10)
         ttk.Button(fin_frame, text="🗑️ Eski Borç Sil", bootstyle="secondary", command=self.safe_call(self.popup_eski_borc_sil, "popup_eski_borc_sil")).pack(side=LEFT, padx=10)
         ttk.Button(fin_frame, text="💳 Toplu Ödeme Al (Bakiyeden Düş)", bootstyle="success", command=self.popup_toplu_odeme).pack(side=LEFT, padx=10)
+        ttk.Button(fin_frame, text="🧩 Toplu Ödeme Yönetimi", bootstyle="info", command=self.safe_call(self.popup_toplu_odeme_yonet, "popup_toplu_odeme_yonet")).pack(side=LEFT, padx=10)
         ttk.Label(top, text="Danışan Adı:", font=("Segoe UI", 10, "bold")).grid(row=0, column=2, padx=8, pady=8, sticky=W)
         danisan_frame = ttk.Frame(top)
         danisan_frame.grid(row=0, column=3, padx=8, pady=8, sticky=W)
@@ -4260,18 +4261,37 @@ class App(ttk.Window):
                                     ))
                                     
                                     # 3. Listede Gözükmesi İçin Kayıt
-                                    # Önce eskileri pasife çek
-                                    cur.execute("UPDATE ogrenci_personel_fiyatlandirma SET aktif=0 WHERE ogrenci_id=? AND personel_adi=? AND aktif=1", (danisan_id, hoca_adi))
-                                    
-                                    cur.execute("""
-                                        INSERT INTO ogrenci_personel_fiyatlandirma
-                                        (ogrenci_id, personel_adi, seans_ucreti, baslangic_tarihi, aktif, zam_orani, olusturma_tarihi)
-                                        VALUES (?, ?, ?, ?, 1, 0, ?)
-                                    """, (
-                                        danisan_id, hoca_adi, tutar, "2026-01-01", 
-                                        datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                                    ))
-                                    
+                                    # ÇAKIŞANLARI OVERWRITE ET: aynı öğrenci/personel için tek aktif kayıt bırak.
+                                    now_ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    cur.execute(
+                                        "SELECT id FROM ogrenci_personel_fiyatlandirma WHERE ogrenci_id=? AND personel_adi=? ORDER BY id DESC",
+                                        (danisan_id, hoca_adi),
+                                    )
+                                    mevcutlar = [int(r[0]) for r in (cur.fetchall() or []) if r and r[0] is not None]
+                                    if mevcutlar:
+                                        korunacak = mevcutlar[0]
+                                        cur.execute(
+                                            """
+                                            UPDATE ogrenci_personel_fiyatlandirma
+                                            SET seans_ucreti=?, baslangic_tarihi=?, aktif=1, zam_orani=0
+                                            WHERE id=?
+                                            """,
+                                            (tutar, "2026-01-01", korunacak),
+                                        )
+                                        if len(mevcutlar) > 1:
+                                            cur.execute(
+                                                f"UPDATE ogrenci_personel_fiyatlandirma SET aktif=0 WHERE id IN ({','.join('?' for _ in mevcutlar[1:])})",
+                                                tuple(mevcutlar[1:]),
+                                            )
+                                    else:
+                                        cur.execute("""
+                                            INSERT INTO ogrenci_personel_fiyatlandirma
+                                            (ogrenci_id, personel_adi, seans_ucreti, baslangic_tarihi, aktif, zam_orani, olusturma_tarihi)
+                                            VALUES (?, ?, ?, ?, 1, 0, ?)
+                                        """, (
+                                            danisan_id, hoca_adi, tutar, "2026-01-01", now_ts
+                                        ))
+
                                     toplam_eklenen += 1
 
                             except Exception: continue
@@ -8191,9 +8211,6 @@ class App(ttk.Window):
                 conn = self.veritabani_baglan()
                 params = []
                 where_extra = ""
-                if not (self.kullanici_yetki == "kurum_muduru" or not self.kullanici_terapist):
-                    where_extra = " AND COALESCE(terapist,'')=?"
-                    params.append(self.kullanici_terapist)
                 sql = (
                     "SELECT id, COALESCE(tarih,''), COALESCE(danisan_adi,''), COALESCE(hizmet_bedeli,0), "
                     "COALESCE(alinan_ucret,0), COALESCE(kalan_borc,0), COALESCE(notlar,'') "
@@ -8247,7 +8264,8 @@ class App(ttk.Window):
                 pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
                 ok = pipeline.eski_borc_sil(rid)
                 if not ok:
-                    messagebox.showwarning("Uyarı", "Kayıt silinemedi. Bu kayıt seans bağlantılı olabilir veya ödeme almıştır.")
+                    neden = pipeline.get_last_error() or "Kayıt silinemedi. Bu kayıt seans bağlantılı olabilir veya ödeme almıştır."
+                    messagebox.showwarning("Uyarı", neden)
                     return
                 messagebox.showinfo("Başarılı", "Devir borcu kaydı silindi.")
                 _load_rows()
@@ -8311,7 +8329,7 @@ class App(ttk.Window):
                 pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
                 basarili = pipeline.toplu_odeme_al(danisan, tutar, aciklama=e_aciklama.get())
                 if not basarili:
-                    raise ValueError("Toplu ödeme kaydı oluşturulamadı.")
+                    raise ValueError(pipeline.get_last_error() or "Toplu ödeme kaydı oluşturulamadı.")
                 messagebox.showinfo("Başarılı", f"{tutar} TL tahsilat alındı.\nKasa defterine işlendi ve bakiyeden düşüldü.")
                 win.destroy()
                 self.kayitlari_listele()
@@ -8326,6 +8344,123 @@ class App(ttk.Window):
                     pass
 
         ttk.Button(win, text="TAHSİLAT YAP", bootstyle="success", command=kaydet).pack(pady=15)    
+
+    def popup_toplu_odeme_yonet(self):
+        """Toplu ödeme kayıtlarını eşleşme kontrolü ile listeler ve gerekirse siler."""
+        win = ttk.Toplevel(self)
+        win.title("Toplu Ödeme Yönetimi")
+        center_window_smart(win, 980, 520, min_w=880, min_h=460)
+
+        top = ttk.Frame(win, padding=10)
+        top.pack(fill=X)
+        ttk.Label(top, text="Toplu ödeme kayıtları (eşleşme kontrolü)", font=("Segoe UI", 11, "bold")).pack(side=LEFT)
+
+        cols = ("kasa_id", "tarih", "danisan", "record_id", "record_danisan", "tutar", "durum", "aciklama")
+        tree = ttk.Treeview(win, columns=cols, show="headings", height=16)
+        headers = [
+            ("kasa_id", "Kasa ID", 80),
+            ("tarih", "Tarih", 100),
+            ("danisan", "Açıklamadaki Danışan", 170),
+            ("record_id", "Record ID", 85),
+            ("record_danisan", "Record Danışan", 170),
+            ("tutar", "Tutar", 110),
+            ("durum", "Eşleşme", 100),
+            ("aciklama", "Açıklama", 260),
+        ]
+        for c, h, w in headers:
+            tree.heading(c, text=h)
+            tree.column(c, width=w, anchor=(CENTER if c in {"kasa_id", "record_id", "tutar", "durum"} else W))
+
+        body = ttk.Frame(win)
+        body.pack(fill=BOTH, expand=True, padx=10, pady=(0, 10))
+        tree.pack(in_=body, side=LEFT, fill=BOTH, expand=True)
+        sb = ttk.Scrollbar(body, orient=VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=sb.set)
+        sb.pack(side=RIGHT, fill=Y)
+        tree.tag_configure("ok", background="#d4edda")
+        tree.tag_configure("bad", background="#f8d7da")
+
+        def _load():
+            for iid in tree.get_children():
+                tree.delete(iid)
+            conn = None
+            try:
+                conn = self.veritabani_baglan()
+                pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
+                rows = pipeline.toplu_odeme_kayitlari_getir()
+                for r in rows:
+                    durum = "Eşleşti" if r.get("matched") else "Eşleşmedi"
+                    tag = "ok" if r.get("matched") else "bad"
+                    tree.insert(
+                        "",
+                        END,
+                        values=(
+                            r.get("kasa_id"),
+                            r.get("tarih", ""),
+                            r.get("danisan", ""),
+                            r.get("record_id", 0),
+                            r.get("record_danisan", ""),
+                            format_money(r.get("tutar", 0)),
+                            durum,
+                            r.get("aciklama", ""),
+                        ),
+                        tags=(tag,),
+                    )
+            except Exception as e:
+                messagebox.showerror("Hata", f"Toplu ödeme listesi yüklenemedi:\n{e}")
+            finally:
+                try:
+                    if conn is not None:
+                        conn.close()
+                except Exception:
+                    pass
+
+        def _secili_kasa_id():
+            sel = tree.selection()
+            if not sel:
+                return None
+            vals = tree.item(sel[0], "values")
+            try:
+                return int(vals[0])
+            except Exception:
+                return None
+
+        def _sil():
+            kasa_id = _secili_kasa_id()
+            if not kasa_id:
+                messagebox.showwarning("Uyarı", "Lütfen silinecek toplu ödeme kaydını seçin.")
+                return
+            if not messagebox.askyesno("Onay", "Seçili toplu ödeme kaydı silinsin mi?\n(Borç/ödeme dengesi geri alınacaktır.)"):
+                return
+            conn = None
+            try:
+                conn = self.veritabani_baglan()
+                pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
+                ok = pipeline.toplu_odeme_hareket_sil(kasa_id)
+                if not ok:
+                    messagebox.showwarning("Uyarı", pipeline.get_last_error() or "Silme işlemi başarısız.")
+                    return
+                messagebox.showinfo("Başarılı", "Toplu ödeme kaydı silindi.")
+                _load()
+                self.kayitlari_listele()
+                self._refresh_borc_tables()
+                self._refresh_open_reports()
+            except Exception as e:
+                messagebox.showerror("Hata", f"Silme hatası:\n{e}")
+            finally:
+                try:
+                    if conn is not None:
+                        conn.close()
+                except Exception:
+                    pass
+
+        btns = ttk.Frame(win, padding=(10, 0, 10, 10))
+        btns.pack(fill=X)
+        ttk.Button(btns, text="Yenile", bootstyle="info", command=_load).pack(side=LEFT)
+        ttk.Button(btns, text="Seçili Toplu Ödemeyi Sil", bootstyle="danger", command=_sil).pack(side=LEFT, padx=8)
+        ttk.Button(btns, text="Kapat", bootstyle="secondary", command=win.destroy).pack(side=RIGHT)
+
+        _load()
 
     def eski_veri_migration(self):
         """

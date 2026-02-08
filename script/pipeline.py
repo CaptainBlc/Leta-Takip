@@ -26,6 +26,7 @@ class DataPipeline:
         self.kullanici_id = kullanici_id
         self._listeners: Dict[str, List] = {}
         self._log_lines: List[str] = []
+        self._last_error: str = ""
 
     # ---------- utils ----------
     def _now(self) -> str:
@@ -53,6 +54,36 @@ class DataPipeline:
             pass
         return v
 
+    def get_last_error(self) -> str:
+        return (self._last_error or "").strip()
+
+    def _set_error(self, msg: str) -> None:
+        self._last_error = str(msg or "").strip()
+
+    def _validate_text(self, value: str, field: str, min_len: int = 1, max_len: int = 120) -> bool:
+        txt = " ".join(str(value or "").strip().split())
+        if len(txt) < min_len:
+            self._set_error(f"{field} boş bırakılamaz.")
+            return False
+        if len(txt) > max_len:
+            self._set_error(f"{field} çok uzun (max {max_len}).")
+            return False
+        yasaklar = ["<script", "--", "/*", "*/"]
+        lowered = txt.lower()
+        if any(x in lowered for x in yasaklar):
+            self._set_error(f"{field} geçersiz karakter dizisi içeriyor.")
+            return False
+        return True
+
+    def _validate_amount(self, amount: float, field: str, min_val: float = 0.0, max_val: float = 1_000_000.0) -> bool:
+        val = self._safe_float(amount)
+        if val < min_val:
+            self._set_error(f"{field} en az {min_val:g} olmalıdır.")
+            return False
+        if val > max_val:
+            self._set_error(f"{field} çok yüksek (max {max_val:g}).")
+            return False
+        return True
 
     def table_exists(self, name: str) -> bool:
         try:
@@ -224,7 +255,20 @@ class DataPipeline:
         hb = self._safe_float(hizmet_bedeli)
         au = self._safe_float(alinan_ucret)
 
+        self._set_error("")
         if not tarih or not danisan_clean or not terapist:
+            self._set_error("Tarih, danışan ve terapist zorunludur.")
+            return None
+        if not self._validate_text(danisan_clean, "Danışan", 2, 80):
+            return None
+        if not self._validate_text(terapist, "Terapist", 2, 80):
+            return None
+        if not self._validate_amount(hb, "Hizmet bedeli", 0.0):
+            return None
+        if not self._validate_amount(au, "Alınan ücret", 0.0):
+            return None
+        if au > hb and hb > 0:
+            self._set_error("Alınan ücret, hizmet bedelinden büyük olamaz.")
             return None
 
         try:
@@ -450,8 +494,9 @@ class DataPipeline:
 
     # ---------- API: Ödeme / Borç ----------
     def odeme_ekle(self, record_id: int, tutar: float, tarih: str, odeme_sekli: str, aciklama: str = "") -> bool:
+        self._set_error("")
         tutar = self._safe_float(tutar)
-        if tutar <= 0 or not self.table_exists("records"):
+        if not self._validate_amount(tutar, "Ödeme tutarı", 0.01) or not self.table_exists("records"):
             return False
         try:
             self.conn.execute("BEGIN")
@@ -506,10 +551,13 @@ class DataPipeline:
         else:
             tarih = str(tarih).strip()
 
+        self._set_error("")
         danisan_clean = (danisan_adi or "").strip()
         danisan_upper = danisan_clean.upper()
         tutar = self._safe_float(tutar)
-        if not danisan_upper or tutar <= 0:
+        if not self._validate_text(danisan_clean, "Danışan", 2, 80):
+            return None
+        if not self._validate_amount(tutar, "Devir borç tutarı", 0.01):
             return None
         try:
             self.conn.execute("BEGIN")
@@ -596,6 +644,14 @@ class DataPipeline:
 
     # ---------- API: Kasa ----------
     def add_manual_kasa_entry(self, tarih: str, tip: str, aciklama: str, tutar: float, odeme_sekli: str = "", gider_kategorisi: str = "") -> bool:
+        self._set_error("")
+        if tip not in {"giren", "cikan"}:
+            self._set_error("Kasa tip değeri geçersiz.")
+            return False
+        if not self._validate_text(aciklama, "Açıklama", 3, 180):
+            return False
+        if not self._validate_amount(tutar, "Kasa tutarı", 0.01):
+            return False
         try:
             self.conn.execute("BEGIN")
             self._add_kasa(tarih, tip, aciklama, self._safe_float(tutar), odeme_sekli, gider_kategorisi)
@@ -1068,9 +1124,15 @@ class DataPipeline:
 
     def toplu_odeme_al(self, danisan_adi: str, tutar: float, aciklama: str = "Toplu Ödeme / Peşinat") -> bool:
         """Danışanın açık borçlarına toplu tahsilat uygular ve kasa/ödeme hareketi üretir."""
+        self._set_error("")
         danisan = (danisan_adi or "").strip().upper()
         tutar = self._safe_float(tutar)
-        if not danisan or tutar <= 0 or not self.table_exists("records"):
+        if not self._validate_text(danisan, "Danışan", 2, 80):
+            return False
+        if not self._validate_amount(tutar, "Toplu ödeme tutarı", 0.01):
+            return False
+        if not self.table_exists("records"):
+            self._set_error("Records tablosu bulunamadı.")
             return False
 
         try:
@@ -1142,6 +1204,67 @@ class DataPipeline:
             except Exception:
                 pass
             log_exception("pipeline.toplu_odeme_al", e)
+            return False
+
+    def toplu_odeme_kayitlari_getir(self, danisan_adi: str | None = None) -> list[dict]:
+        """Toplu ödeme kasa kayıtlarını getirir ve record eşleşmesini doğrular."""
+        out: list[dict] = []
+        if not self.table_exists("kasa_hareketleri"):
+            return out
+        try:
+            q = (
+                "SELECT id, COALESCE(tarih,''), COALESCE(aciklama,''), COALESCE(tutar,0), COALESCE(record_id,0) "
+                "FROM kasa_hareketleri WHERE COALESCE(tip,'')='giren' "
+                "AND UPPER(COALESCE(aciklama,'')) LIKE 'TOPLU ÖDEME:%' ORDER BY id DESC"
+            )
+            self.cur.execute(q)
+            hedef = self._normalize_name((danisan_adi or "").strip()) if danisan_adi else ""
+            for kid, tarih, aciklama, tutar, rid in self.cur.fetchall() or []:
+                rid = int(rid or 0)
+                aciklama = str(aciklama or "")
+                pay = aciklama.split(":", 1)[1].strip() if ":" in aciklama else ""
+                ad = pay.split("/", 1)[0].strip() if pay else ""
+                if hedef and self._normalize_name(ad) != hedef:
+                    continue
+
+                rec_ad = ""
+                if rid > 0 and self.table_exists("records"):
+                    self.cur.execute("SELECT COALESCE(danisan_adi,'') FROM records WHERE id=?", (rid,))
+                    rr = self.cur.fetchone()
+                    rec_ad = str((rr or [""])[0] or "")
+                matched = bool(rid > 0 and rec_ad and self._normalize_name(rec_ad) == self._normalize_name(ad))
+                out.append({
+                    "kasa_id": int(kid),
+                    "tarih": tarih,
+                    "aciklama": aciklama,
+                    "tutar": self._safe_float(tutar),
+                    "record_id": rid,
+                    "danisan": ad,
+                    "record_danisan": rec_ad,
+                    "matched": matched,
+                })
+        except Exception as e:
+            log_exception("pipeline.toplu_odeme_kayitlari_getir", e)
+        return out
+
+    def toplu_odeme_hareket_sil(self, kasa_id: int) -> bool:
+        if not self.table_exists("kasa_hareketleri"):
+            return False
+        try:
+            self.cur.execute(
+                "SELECT COALESCE(aciklama,''), COALESCE(tip,'') FROM kasa_hareketleri WHERE id=?",
+                (int(kasa_id),),
+            )
+            row = self.cur.fetchone()
+            if not row:
+                return False
+            aciklama, tip = row
+            if str(tip or "") != "giren" or not str(aciklama or "").upper().startswith("TOPLU ÖDEME:"):
+                self._set_error("Seçilen kasa kaydı toplu ödeme kaydı değil.")
+                return False
+            return self.kasa_hareket_sil(int(kasa_id))
+        except Exception as e:
+            log_exception("pipeline.toplu_odeme_hareket_sil", e)
             return False
 
     # ---------- API: Danışan ----------
