@@ -3,6 +3,15 @@ from pathlib import Path
 
 DB_PATH = Path("leta.db")
 
+DEFAULT_THERAPISTS = [
+    "Pervin Hoca",
+    "Çağlar Hoca",
+    "Elif Hoca",
+    "Arif Hoca",
+    "Sena Hoca",
+    "Aybüke Hoca",
+]
+
 
 def _ensure_minimum_schema(conn: sqlite3.Connection) -> None:
     """Login/register ve temel UI akışlarının ihtiyaç duyduğu minimum şema."""
@@ -49,6 +58,24 @@ def _ensure_minimum_schema(conn: sqlite3.Connection) -> None:
             cur.execute("ALTER TABLE settings ADD COLUMN therapist_role TEXT DEFAULT ''")
         if "created_at" not in s_cols:
             cur.execute("ALTER TABLE settings ADD COLUMN created_at TEXT")
+    except Exception:
+        pass
+
+    # Varsayılan terapistleri ilk kurulumda ekle
+    try:
+        cur.execute("SELECT COUNT(*) FROM settings WHERE COALESCE(is_active,1)=1")
+        cnt = int((cur.fetchone() or [0])[0] or 0)
+        if cnt == 0:
+            now = ""
+            try:
+                import datetime
+                now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                now = ""
+            cur.executemany(
+                "INSERT OR IGNORE INTO settings (therapist_name, therapist_role, is_active, created_at) VALUES (?, '', 1, ?)",
+                [(n, now) for n in DEFAULT_THERAPISTS],
+            )
     except Exception:
         pass
 

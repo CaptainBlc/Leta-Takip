@@ -702,6 +702,14 @@ class DataPipeline:
             log_exception("pipeline.get_smart_defaults", e)
             return out
 
+    def get_price_for_danisan_terapist(self, danisan_adi: str, terapist_adi: str) -> float:
+        """UI compatibility: danışan+terapist için otomatik hizmet bedelini döndürür."""
+        try:
+            defaults = self.get_smart_defaults(danisan_adi=danisan_adi, terapist_adi=terapist_adi, tarih=self._today(), saat="09:00")
+            return self._safe_float(defaults.get("price", 0))
+        except Exception:
+            return 0.0
+
     def validate_sync(self) -> dict:
         # UI burada result["stats"]["seans_takvimi_count"] gibi anahtarlar bekliyor (KeyError fix)
         tables = {
