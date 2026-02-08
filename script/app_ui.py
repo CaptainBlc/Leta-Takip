@@ -4270,8 +4270,26 @@ class App(ttk.Window):
             BLACKLIST = [
                 "yeni değerlendirme", "yenı degerlendırme",
                 "dakika", "dakıka", "jimnastik", "cimnastik",
-                "aas temiz", "toplam", "genel toplam"
+                "aas temiz", "toplam", "genel toplam", "sütun1", "sütun2"
             ]
+
+            def _extract_teacher_name(df, r_baslik: int, c_danisan: int, sheet_name: str) -> str:
+                adaylar = []
+                for rr in range(max(0, r_baslik - 2), min(len(df), r_baslik + 2)):
+                    for cc in range(max(0, c_danisan - 3), min(len(df.columns), c_danisan + 6)):
+                        txt = str(df.iloc[rr, cc]).strip()
+                        if not txt or txt.lower() == 'nan':
+                            continue
+                        tlow = txt.lower()
+                        if 'hoca' in tlow:
+                            adaylar.append(txt)
+                if adaylar:
+                    sec = sorted(adaylar, key=lambda x: abs(len(x) - 10))[0]
+                else:
+                    sec = sheet_name.replace('.csv', '').replace('.xlsx', '').strip()
+                sec = sec.replace('Ödemesi', '').replace('Listesi', '').replace('Ücretleri', '').strip()
+                sec = ' '.join(sec.split())
+                return sec
             
             for sheet_name in xls.sheet_names:
                 try:
@@ -4290,24 +4308,23 @@ class App(ttk.Window):
                         continue
 
                     for r_baslik, c_danisan in baslik_koordinatlari:
-                        # Hoca İsmini Bul
-                        hoca_adi = None
-                        if r_baslik > 0:
-                            val = str(df.iloc[r_baslik-1, c_danisan]).strip()
-                            if val and val.lower() != 'nan': hoca_adi = val
-                        
+                        # Hoca İsmini Bul (çoklu blok/çoklu başlık uyumlu)
+                        hoca_adi = _extract_teacher_name(df, r_baslik, c_danisan, sheet_name)
                         if not hoca_adi:
-                            hoca_adi = sheet_name.replace(".csv", "").replace(".xlsx", "").strip()
-
-                        hoca_adi = hoca_adi.replace("Ödemesi", "").replace("Listesi", "").strip()
+                            continue
                         bulunan_hocalar.add(hoca_adi)
 
-                        # Tutar Sütununu Bul
+                        # Tutar Sütununu Bul (başlık bir alt satıra kaymış olabilir)
                         c_tutar = c_danisan + 1
-                        for check_col in range(c_danisan + 1, min(c_danisan + 6, len(df.columns))):
-                            header_val = str(df.iloc[r_baslik, check_col]).strip()
-                            if "Tutar" in header_val or "Ücret" in header_val:
-                                c_tutar = check_col
+                        for check_col in range(c_danisan + 1, min(c_danisan + 8, len(df.columns))):
+                            bulundu = False
+                            for rr in (r_baslik, min(r_baslik + 1, len(df) - 1), min(r_baslik + 2, len(df) - 1)):
+                                header_val = str(df.iloc[rr, check_col]).strip().lower()
+                                if ("tutar" in header_val) or ("ücret" in header_val) or ("ucret" in header_val):
+                                    c_tutar = check_col
+                                    bulundu = True
+                                    break
+                            if bulundu:
                                 break
 
                         # Satırları Oku
@@ -4317,8 +4334,10 @@ class App(ttk.Window):
                                 
                                 # Filtreler
                                 if not danisan or danisan.lower() in ['nan', 'none', 'toplam']: continue
-                                if "Danışan" in danisan or "Hoca" in danisan: continue
-                                if any(x in danisan.lower() for x in BLACKLIST): continue
+                                dlow = danisan.lower()
+                                if "danışan" in dlow or "hoca" in dlow: continue
+                                if dlow.startswith('grup') or ' grubu' in dlow: continue
+                                if any(x in dlow for x in BLACKLIST): continue
 
                                 # Tutar Okuma
                                 tutar_raw = df.iloc[r, c_tutar]
