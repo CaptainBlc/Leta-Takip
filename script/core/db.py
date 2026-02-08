@@ -1,7 +1,6 @@
 import sqlite3
-from pathlib import Path
+from .paths import db_path
 
-DB_PATH = Path("leta.db")
 
 DEFAULT_THERAPISTS = [
     "Pervin Hoca",
@@ -334,7 +333,7 @@ def _ensure_minimum_schema(conn: sqlite3.Connection) -> None:
 
 
 def connect_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(str(db_path()))
     conn.row_factory = sqlite3.Row
     _ensure_minimum_schema(conn)
     conn.commit()
@@ -342,7 +341,7 @@ def connect_db() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(str(db_path()))
     conn.row_factory = sqlite3.Row
     _ensure_minimum_schema(conn)
 
