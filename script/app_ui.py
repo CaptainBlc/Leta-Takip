@@ -526,7 +526,7 @@ class App(ttk.Window):
         user_row = None
         try:
             conn = self.veritabani_baglan()
-            self.pipeline = DataPipeline(conn, self.kullanici[0])
+            self.pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
             cur = conn.cursor()
             cur.execute(
                 "SELECT id, username, full_name, COALESCE(access_role, role, 'egitim_gorevlisi'), therapist_name, password_hash FROM users WHERE is_active=1 AND username=?",
