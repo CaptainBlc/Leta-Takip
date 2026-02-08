@@ -11,6 +11,7 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
+$versionTag = $Version.Replace(".", "_")
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Leta Takip - Otomatik Build" -ForegroundColor Cyan
@@ -78,9 +79,9 @@ Write-Host "✅ TÜM BUILD İŞLEMLERİ TAMAMLANDI!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "📦 Windows dosyaları:" -ForegroundColor Cyan
-Write-Host "   • dist\Leta_Pipeline_v1_3.exe" -ForegroundColor White
-if (Test-Path "dist\Leta_Takip_Setup_v1_3.exe") {
-  Write-Host "   • dist\Leta_Takip_Setup_v1_3.exe" -ForegroundColor White
+Write-Host "   • dist\Leta_Pipeline_v${versionTag}.exe" -ForegroundColor White
+if (Test-Path "dist\Leta_Takip_Setup_v${versionTag}.exe") {
+  Write-Host "   • dist\Leta_Takip_Setup_v${versionTag}.exe" -ForegroundColor White
 }
 Write-Host ""
 Write-Host "🍎 Mac dosyaları GitHub Actions'da oluşturulacak." -ForegroundColor Cyan

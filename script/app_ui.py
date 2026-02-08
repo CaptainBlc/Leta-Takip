@@ -220,6 +220,7 @@ class App(ttk.Window):
             except Exception:
                 pass
 
+            self._refresh_open_reports()
             messagebox.showinfo("OK", "Kasa hareketi silindi.")
         except Exception as e:
             messagebox.showerror("Hata", f"Silme başarısız:\n{e}")
@@ -1861,7 +1862,7 @@ class App(ttk.Window):
                     messagebox.showinfo("Tamam", f"{silinen} seans kaydı silindi.")
                     self.kayitlari_listele()
                     self._refresh_borc_tables()
-                    _load_records(); _load_kasa()
+                    _load_records(); _load_kasa(); self._refresh_open_reports()
                 else:
                     sec = list(tree_k.selection())
                     mod = _secim_modu(len(sec), "kasa hareketi")
@@ -1881,6 +1882,7 @@ class App(ttk.Window):
                         return
                     messagebox.showinfo("Tamam", f"{silinen} kasa hareketi silindi.")
                     _load_kasa()
+                    self._refresh_open_reports()
             except Exception as e:
                 messagebox.showerror("Hata", f"Silme hatası:\n{e}")
                 log_exception("_rapor_pencere_sil", e)
@@ -1896,6 +1898,8 @@ class App(ttk.Window):
         def _yenile():
             df_cache["records"] = _load_records()
             df_cache["kasa"] = _load_kasa()
+
+        self._register_report_refresher(win, _yenile)
 
         def _excel():
             sec_tab = nb.select()
@@ -2360,6 +2364,23 @@ class App(ttk.Window):
         except Exception:
             pass
 
+    def _register_report_refresher(self, win, callback) -> None:
+        refs = getattr(self, "_open_report_refreshers", {})
+        refs[str(win)] = callback
+        self._open_report_refreshers = refs
+        try:
+            win.bind("<Destroy>", lambda e, k=str(win): self._open_report_refreshers.pop(k, None), add="+")
+        except Exception:
+            pass
+
+    def _refresh_open_reports(self) -> None:
+        refs = dict(getattr(self, "_open_report_refreshers", {}))
+        for key, cb in refs.items():
+            try:
+                cb()
+            except Exception:
+                self._open_report_refreshers.pop(key, None)
+
     def _reload_open_toplevels(self) -> None:
         """Açık olan Toplevel pencerelerinde _reload varsa çağır (danışan/liste güncellemeleri)."""
         try:
@@ -2480,11 +2501,13 @@ class App(ttk.Window):
         )
 
         # RAPORLAR (günlük / haftalık / toplam) - kasa için gereken özetler burada
-        rep = ttk.Labelframe(self.tab_records, text="Raporlar", padding=10, bootstyle="secondary")
+        rep = ttk.Labelframe(self.tab_records, text="Raporlar", padding=8, bootstyle="secondary")
         rep.pack(fill=X, pady=(0, 10))
-        ttk.Button(rep, text="Günlük Rapor", bootstyle="primary", command=self.gunluk_rapor_pencere).pack(side=LEFT, padx=6)
-        ttk.Button(rep, text="Haftalık Rapor", bootstyle="primary", command=self.haftalik_rapor_pencere).pack(side=LEFT, padx=6)
-        ttk.Button(rep, text="Toplam Rapor (Genel)", bootstyle="secondary", command=self.toplam_rapor_pencere).pack(side=LEFT, padx=6)
+        rep.grid_columnconfigure(0, weight=1)
+        rep.grid_columnconfigure(1, weight=1)
+        ttk.Button(rep, text="Günlük Rapor", width=18, bootstyle="primary", command=self.gunluk_rapor_pencere).grid(row=0, column=0, padx=4, pady=4, sticky="ew")
+        ttk.Button(rep, text="Haftalık Rapor", width=18, bootstyle="primary", command=self.haftalik_rapor_pencere).grid(row=0, column=1, padx=4, pady=4, sticky="ew")
+        ttk.Button(rep, text="Toplam Rapor", width=18, bootstyle="secondary", command=self.toplam_rapor_pencere).grid(row=1, column=0, columnspan=2, padx=4, pady=(2,4), sticky="ew")
         ttk.Label(
             self.tab_records,
             text="İpucu: Seans kaydı ve ödeme işlemleri otomatik işlenir; ek senkronizasyon ayarı gerekmez.",
@@ -2640,6 +2663,7 @@ class App(ttk.Window):
             if silinen > 0:
                 self.kayitlari_listele()
                 self._refresh_borc_tables()
+                self._refresh_open_reports()
             messagebox.showinfo("Tamamlandı", f"{silinen} kayıt silindi.")
         except Exception as e:
             messagebox.showerror("Hata", f"Silme hatası:\n{e}")
@@ -3451,6 +3475,7 @@ class App(ttk.Window):
             messagebox.showinfo("✅ Başarılı!", f"{silinen} kayıt silindi.")
             self.kayitlari_listele()
             self._refresh_borc_tables()
+            self._refresh_open_reports()
         except Exception as e:
             messagebox.showerror("Hata", f"Silme hatası:\n{e}")
             log_exception("kayit_sil_pipeline", e)
@@ -4854,31 +4879,30 @@ class App(ttk.Window):
         report_frame.pack(fill=X, pady=(0, 10))
         
         report_type = ttk.StringVar(value="gunluk")
-        ttk.Radiobutton(report_frame, text="📅 Günlük", variable=report_type, value="gunluk",
-                       command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=10)
-        ttk.Radiobutton(report_frame, text="📆 Haftalık", variable=report_type, value="haftalik",
-                       command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=10)
-        ttk.Radiobutton(report_frame, text="📊 Aylık", variable=report_type, value="aylik",
-                       command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=10)
-        ttk.Radiobutton(report_frame, text="📋 Bütün veriler", variable=report_type, value="tumu",
-                       command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=10)
-        
-        # Tarih seçimi
+        rf = ttk.Frame(report_frame)
+        rf.pack(fill=X)
+        ttk.Radiobutton(rf, text="📅 Günlük", variable=report_type, value="gunluk", command=lambda: self._kasa_rapor_yukle(wrapper)).grid(row=0, column=0, padx=6, pady=2, sticky=W)
+        ttk.Radiobutton(rf, text="📆 Haftalık", variable=report_type, value="haftalik", command=lambda: self._kasa_rapor_yukle(wrapper)).grid(row=0, column=1, padx=6, pady=2, sticky=W)
+        ttk.Radiobutton(rf, text="📊 Aylık", variable=report_type, value="aylik", command=lambda: self._kasa_rapor_yukle(wrapper)).grid(row=1, column=0, padx=6, pady=2, sticky=W)
+        ttk.Radiobutton(rf, text="📋 Bütün veriler", variable=report_type, value="tumu", command=lambda: self._kasa_rapor_yukle(wrapper)).grid(row=1, column=1, padx=6, pady=2, sticky=W)
+
+        # Tarih seçimi (kompakt 2 satır)
         date_frame = ttk.Frame(wrapper)
         date_frame.pack(fill=X, pady=(0, 10))
-        
-        ttk.Label(date_frame, text="Tarih:").pack(side=LEFT, padx=5)
-        ent_tarih = ttk.Entry(date_frame, width=15)
+
+        top_btn = ttk.Frame(date_frame)
+        top_btn.pack(fill=X, pady=(0, 4))
+        ttk.Label(top_btn, text="Tarih:").pack(side=LEFT, padx=4)
+        ent_tarih = ttk.Entry(top_btn, width=14)
         ent_tarih.insert(0, datetime.datetime.now().strftime("%Y-%m-%d"))
-        ent_tarih.pack(side=LEFT, padx=5)
-        
-        ttk.Button(date_frame, text="🔄 Raporu Göster", bootstyle="primary",
-                   command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=5)
-        ttk.Button(date_frame, text="↻ Yenile", bootstyle="secondary",
-                   command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=5)
-        ttk.Button(date_frame, text="📊 Rapor Hazırla (Excel)", bootstyle="success",
-                   command=lambda: self._kasa_rapor_hazirla_excel(wrapper)).pack(side=LEFT, padx=5)
-        ttk.Button(date_frame,text="🗑️ Seçiliyi Sil",bootstyle="danger",command=self.safe_call(lambda: self._kasa_secili_sil(parent=wrapper), "kasa_secili_sil")).pack(side=LEFT, padx=10)
+        ent_tarih.pack(side=LEFT, padx=4)
+        ttk.Button(top_btn, text="🔄 Göster", bootstyle="primary", width=12, command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=4)
+        ttk.Button(top_btn, text="↻ Yenile", bootstyle="secondary", width=10, command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=4)
+
+        bot_btn = ttk.Frame(date_frame)
+        bot_btn.pack(fill=X)
+        ttk.Button(bot_btn, text="📊 Excel", bootstyle="success", width=12, command=lambda: self._kasa_rapor_hazirla_excel(wrapper)).pack(side=LEFT, padx=4)
+        ttk.Button(bot_btn, text="🗑️ Seçiliyi Sil", bootstyle="danger", width=14, command=self.safe_call(lambda: self._kasa_secili_sil(parent=wrapper), "kasa_secili_sil")).pack(side=LEFT, padx=4)
 
         
         # Özet bilgiler
