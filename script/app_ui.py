@@ -6509,10 +6509,28 @@ class App(ttk.Window):
         sel = tree.selection()
         if not sel:
             return
-        danisan_id = tree.item(sel[0])["values"][0]
-        danisan_adi = tree.item(sel[0])["values"][1]
-        mevcut_durum = tree.item(sel[0])["values"][8]
-        yeni_durum = 0 if mevcut_durum == "Aktif" else 1
+        vals = tree.item(sel[0]).get("values") or []
+        if len(vals) < 2:
+            messagebox.showerror("Hata", "Seçili satır bilgisi okunamadı.")
+            return
+
+        danisan_id = vals[0]
+        danisan_adi = vals[1]
+
+        # Tablo kolonları sürümler arasında değişebildiği için durumu DB'den güvenli oku
+        try:
+            conn_chk = self.veritabani_baglan()
+            cur_chk = conn_chk.cursor()
+            cur_chk.execute("SELECT COALESCE(aktif,1) FROM danisanlar WHERE id=?", (danisan_id,))
+            row_chk = cur_chk.fetchone()
+            conn_chk.close()
+            aktif_mevcut = int((row_chk or [1])[0] or 0)
+        except Exception:
+            # fallback: satırın son kolonu "Durum" ise buradan çıkar
+            durum_txt = str(vals[-1]) if vals else "Aktif"
+            aktif_mevcut = 1 if durum_txt == "Aktif" else 0
+
+        yeni_durum = 0 if aktif_mevcut == 1 else 1
         
         if not messagebox.askyesno("Onay", f"{danisan_adi} danışanını {'pasif' if yeni_durum == 0 else 'aktif'} yapmak istediğinize emin misiniz?"):
             return
