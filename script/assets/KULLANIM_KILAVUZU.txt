@@ -1,0 +1,76 @@
+LETA TAKİP – KULLANIM KILAVUZU (TEMEL + PRATİK)
+================================================
+
+Bu kılavuz teknik olmayan kullanıcılar için hazırlanmıştır.
+Amaç: günlük işlemleri güvenli ve hızlı şekilde yapabilmeniz.
+
+1) UYGULAMAYA GİRİŞ
+-------------------
+- Uygulamayı açın.
+- Kullanıcı adı + şifre ile giriş yapın.
+- İlk kurulumda "Kurum Müdürü" hesabı oluşturulur.
+
+2) ANA MODÜLLER (KISA ÖZET)
+----------------------------
+- SEANS TAKİP:
+  Seans kaydı ekleme, ödeme ekleme, kayıt silme.
+- ÜCRET TAKİBİ:
+  Çocuk ücret/fiyat kayıtları ve personel hakediş/ödeme takibi.
+- KASA DEFTERİ:
+  Kasaya giren/çıkan para hareketleri, rapor ve excel çıktısı.
+- HAFTALIK PROGRAM:
+  Haftalık planı kaydetme ve Excel'e aktarma.
+- ÖĞRENCİ BİLGİLERİ:
+  Danışan listeleme, düzenleme, aktif/pasif, kalıcı silme.
+- AYARLAR:
+  Terapist listesi, logo yönetimi, sistem ayarları.
+
+3) EN SIK YAPILAN İŞLEMLER
+---------------------------
+A) Yeni seans girmek
+1. SEANS TAKİP sekmesine gelin.
+2. Tarih, danışan, terapist seçin.
+3. Alınan ücreti girin.
+4. KAYDET butonuna basın.
+
+B) Seansa ödeme eklemek
+1. Seans satırını seçin.
+2. "Ödeme Ekle" butonuna basın.
+3. Tutar ve ödeme türünü yazıp kaydedin.
+
+C) Personel ücret ödemesi yapmak
+1. ÜCRET TAKİBİ > Personel Ücret Takibi sayfasına girin.
+2. "Ödeme Yap" ile bekleyen kaydı seçin.
+3. Kaydettikten sonra Personel/Kasa listeleri otomatik güncellenir.
+
+4) SİLME İŞLEMLERİ (ÖNEMLİ)
+----------------------------
+- Seans silindiğinde bağlı ücret/kasa kayıtları da senkron temizlenir.
+- Kalıcı silme geri alınamaz.
+- Kararsızsanız önce yedek alın.
+
+5) YEDEKLEME VE VERİ GÜVENLİĞİ
+-------------------------------
+- Uygulama açılışta otomatik yedek alır.
+- Yedekler "Yedekler" klasörüne yazılır.
+- Ek koruma için ikinci bir klasöre mirror yedek alınabilir:
+  LETA_BACKUP_MIRROR ortam değişkeni ayarlanabilir.
+
+6) SORUN OLURSA
+---------------
+- Önce uygulamayı kapatıp yeniden açın.
+- "Yedek Klasörünü Aç" ile en güncel yedeği kontrol edin.
+- Hata devam ederse kurum müdürüne/teknik sorumluya şu bilgileri iletin:
+  - Hangi ekranda hata oldu?
+  - Hangi butona bastınız?
+  - Hata mesajı neydi?
+
+7) İYİ KULLANIM ÖNERİLERİ
+--------------------------
+- Danışan adını tek bir formatta kullanın.
+- Toplu silme öncesi mutlaka yedek alın.
+- Gün sonu Kasa Defteri raporunu kontrol edin.
+
+Kısa not:
+Bu sistem günlük kullanıma göre sade tasarlanmıştır.
+Bilmiyorsanız önce veri silmek yerine "Aktif/Pasif" kullanın.

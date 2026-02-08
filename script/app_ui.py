@@ -2287,6 +2287,15 @@ class App(ttk.Window):
     def veritabani_baglan(self) -> sqlite3.Connection:
         return connect_db()
 
+    def _table_has_column(self, conn: sqlite3.Connection, table: str, column: str) -> bool:
+        try:
+            cur = conn.cursor()
+            cur.execute(f"PRAGMA table_info({table})")
+            cols = [str(r[1]) for r in (cur.fetchall() or []) if len(r) > 1]
+            return column in cols
+        except Exception:
+            return False
+
     def _refresh_borc_tables(self) -> None:
         """Balance/records değişince danışan listesindeki borç sütununu yenile.
         Hem hemen çağrılır (güncel veri görünsün) hem after(0, ...) ile tekrar (pencere/platform gecikmeleri için)."""
@@ -3144,7 +3153,7 @@ class App(ttk.Window):
         try:
             conn = self.veritabani_baglan()
             cur = conn.cursor()
-            where = ["(put.seans_id IS NULL OR st.id IS NOT NULL)"]
+            where = []
             params = []
             
             # Role göre filtre (eğitim görevlisi sadece kendi kayıtlarını görür)
@@ -3920,18 +3929,22 @@ class App(ttk.Window):
             conn = self.veritabani_baglan()
             cur = conn.cursor()
             
-            # seans silinmişse bağlı personel ücret kaydını listede göstermeyelim
-            where = ["(put.seans_id IS NULL OR st.id IS NOT NULL)"]
+            has_put_seans = self._table_has_column(conn, "personel_ucret_takibi", "seans_id")
+            where = []
             params = []
-            
+
+            if has_put_seans:
+                # seans silinmişse bağlı personel ücret kaydını listede göstermeyelim
+                where.append("(put.seans_id IS NULL OR st.id IS NOT NULL)")
+
             if personel_filtre:
                 where.append("put.personel_adi = ?")
                 params.append(personel_filtre)
-            
+
             if durum_filtre:
                 where.append("put.odeme_durumu = ?")
                 params.append(durum_filtre.lower())
-            
+
             sql = """
                 SELECT 
                     put.id,
@@ -3943,8 +3956,9 @@ class App(ttk.Window):
                     put.odeme_durumu,
                     put.odeme_tarihi
                 FROM personel_ucret_takibi put
-                LEFT JOIN seans_takvimi st ON st.id = put.seans_id
             """
+            if has_put_seans:
+                sql += " LEFT JOIN seans_takvimi st ON st.id = put.seans_id"
             if where:
                 sql += " WHERE " + " AND ".join(where)
             sql += " ORDER BY put.tarih DESC, put.id DESC"
@@ -4501,18 +4515,30 @@ class App(ttk.Window):
             try:
                 conn = self.veritabani_baglan()
                 cur = conn.cursor()
-                cur.execute(
-                    """
-                    SELECT put.id, put.tarih, put.seans_ucreti, put.personel_ucreti
-                    FROM personel_ucret_takibi put
-                    LEFT JOIN seans_takvimi st ON st.id = put.seans_id
-                    WHERE put.personel_adi = ?
-                      AND put.odeme_durumu = 'beklemede'
-                      AND (put.seans_id IS NULL OR st.id IS NOT NULL)
-                    ORDER BY put.tarih DESC
-                    """,
-                    (personel,)
-                )
+                has_put_seans = self._table_has_column(conn, "personel_ucret_takibi", "seans_id")
+                if has_put_seans:
+                    cur.execute(
+                        """
+                        SELECT put.id, put.tarih, put.seans_ucreti, put.personel_ucreti
+                        FROM personel_ucret_takibi put
+                        LEFT JOIN seans_takvimi st ON st.id = put.seans_id
+                        WHERE put.personel_adi = ?
+                          AND put.odeme_durumu = 'beklemede'
+                          AND (put.seans_id IS NULL OR st.id IS NOT NULL)
+                        ORDER BY put.tarih DESC
+                        """,
+                        (personel,)
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT id, tarih, seans_ucreti, personel_ucreti
+                        FROM personel_ucret_takibi
+                        WHERE personel_adi = ? AND odeme_durumu = 'beklemede'
+                        ORDER BY tarih DESC
+                        """,
+                        (personel,)
+                    )
                 rows = cur.fetchall()
                 conn.close()
                 
