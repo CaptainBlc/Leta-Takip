@@ -5,9 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
-VERSION="${1:-1.0}"
-APP_NAME="Leta_Yonetim_Paneli_v1_0"
-IDENTIFIER="com.leta.yonetim.paneli"
+VERSION="${1:-1.3}"
+APP_NAME="Leta_Pipeline_v${VERSION//./_}"
+IDENTIFIER="com.leta.takip"
 
 echo "== Leta macOS PKG (v${VERSION}) =="
 
@@ -24,8 +24,8 @@ rm -rf "${STAGE}"
 mkdir -p "${STAGE}/Applications"
 cp -R "dist/${APP_NAME}.app" "${STAGE}/Applications/"
 
-PKG_COMPONENT="dist/${APP_NAME}_${VERSION}_component.pkg"
-PKG_FINAL="dist/${APP_NAME}_${VERSION}.pkg"
+PKG_COMPONENT="dist/Leta_Takip_${VERSION}_component.pkg"
+PKG_FINAL="dist/Leta_Takip_${VERSION}.pkg"
 
 rm -f "${PKG_COMPONENT}" "${PKG_FINAL}"
 
@@ -40,5 +40,4 @@ productbuild \
   "${PKG_FINAL}"
 
 echo "OK -> ${PKG_FINAL}"
-
 

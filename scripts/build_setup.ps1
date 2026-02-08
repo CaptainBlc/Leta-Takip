@@ -84,9 +84,9 @@ Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "✅ BUILD TAMAMLANDI!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "📦 Dosyalar:" -ForegroundColor Cyan
-Write-Host "   • dist\$exeName" -ForegroundColor White
-if (Test-Path "dist\Leta_Takip_Setup_v1_3.exe") {
-  Write-Host "   • dist\Leta_Takip_Setup_v1_3.exe" -ForegroundColor White
+Write-Host "Dosyalar:" -ForegroundColor Cyan
+Write-Host "   - dist\$exeName" -ForegroundColor White
+if (Test-Path (Join-Path dist "Leta_Takip_Setup_v1_3.exe")) {
+  Write-Host "   - dist\Leta_Takip_Setup_v1_3.exe" -ForegroundColor White
 }
 Write-Host ""
