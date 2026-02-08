@@ -1,0 +1,81 @@
+LETA TAKİP – GÜNCEL KULLANIM KILAVUZU (Sade ve Pratik)
+========================================================
+
+Bu kılavuz teknik bilgisi az olan kullanıcılar için hazırlanmıştır.
+Amaç: günlük işlemleri kısa adımlarla güvenli şekilde yapmak.
+
+1) HIZLI BAŞLANGIÇ
+------------------
+- Uygulamayı açın, kullanıcı adı/şifre ile giriş yapın.
+- Ana ekranda önce "SEANS TAKİP" ve "KASA DEFTERİ" bölümlerini tanıyın.
+- Yardım için Seans Takip ekranındaki "📘 Kılavuz" butonunu kullanın.
+
+2) SEANS TAKİP – EN SIK İŞLEMLER
+----------------------------------
+A) Yeni seans ekleme
+1. Tarih, danışan ve terapist seçin.
+2. Alınan ücreti girin.
+3. KAYDET'e basın.
+
+B) Toplu ödeme alma (borç kapatma)
+1. "💳 Toplu Ödeme Al" butonuna basın.
+2. Danışan ve tutarı girin.
+3. Kaydedin.
+Not: Borç yoksa bu işlem kayıt oluşturmaz.
+
+C) Eski borç yükleme
+1. "📉 Eski Borç Yükle" butonuna basın.
+2. Danışan ve devir borcu tutarını girin.
+3. Kaydedin.
+
+3) RAPORLAR (GÜNLÜK / HAFTALIK / TOPLAM)
+------------------------------------------
+- Raporlar alanındaki butonlar kompakt düzendedir.
+- Rapor penceresinde iki sekme vardır:
+  1) Seans / Records
+  2) Kasa Defteri
+- Bir sekmede silinen kayıtlar açık raporlara otomatik yansır.
+
+4) SİLME İŞLEMLERİ (TEKLİ / TOPLU)
+-----------------------------------
+- Seans Takip ve rapor ekranlarında silme sırasında seçim modu sorulur:
+  - Evet  = sadece ilk seçili satır
+  - Hayır = tüm seçili satırlar
+  - İptal = vazgeç
+- Silme sonrası ilgili tablolar ve raporlar otomatik yenilenir.
+
+5) YEDEKLEME VE VERİ GÜVENLİĞİ
+-------------------------------
+- Ana yerel yedek klasörü:
+  Windows için: C:\Users\<kullanici>\AppData\Local\LetaYonetim\Yedekler
+- Ek mirror yedek klasörleri desteklenir:
+  - LETA_BACKUP_MIRROR
+- Google Drive senkron klasörüne ek yedek için:
+  - LETA_BACKUP_GDRIVE_DIR ortam değişkenini kurumun Google Drive klasörüne verin.
+  - Örnek: C:\Users\<kullanici>\Google Drive\My Drive\LetaYonetim_Yedek
+- Böylece cihaz arızasında veya lokal bozulmada buluttaki kopyadan geri dönüş kolaylaşır.
+
+6) KULLANICI DOSTU İPUÇLARI
+-----------------------------
+- Karmaşa yaşamamak için isimleri tek formatta girin.
+- Toplu silme öncesi mutlaka yedek alın.
+- Gün sonunda Kasa Defteri raporunu kontrol edin.
+- Anlamadığınız ekranda önce "Yenile" ve sonra "Kılavuz" kullanın.
+
+7) SORUN OLURSA
+---------------
+- Uygulamayı kapatıp yeniden açın.
+- Kasa/Seans listesini Yenile ile tazeleyin.
+- Devam eden sorunda teknik sorumluya şu bilgileri iletin:
+  - Hangi ekranda oldu?
+  - Hangi butona basıldı?
+  - Mesaj metni neydi?
+
+
+8) VERİ KAYIT MANTIĞI (ÖNEMLİ)
+------------------------------
+- Bu sistemin ana çalışma mantığı: VERİLER ÖNCE LOKALDE tutulur (internet gerekmez).
+- Ana veritabanı dosyası adı: leta_data.db
+- Otomatik kayıt yeri işletim sistemine göre belirlenir.
+  - Windows örneği: C:\Users\<kullanici>\AppData\Local\LetaYonetim
+- Bulut (Google Drive vb.) yalnızca EK Yedek/Mirror amaçlıdır; ana kayıt kaynağı lokal veritabanıdır.
