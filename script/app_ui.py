@@ -8177,7 +8177,7 @@ class App(ttk.Window):
 
         ttk.Label(
             win,
-            text="Sadece ödeme almamış devir borcu kayıtları silinebilir.",
+            text="Açık borç kayıtları listelenir. Sadece uygun (silinebilir) kayıtlar silinir.",
             bootstyle="warning",
             font=("Segoe UI", 10, "bold"),
         ).pack(anchor=W, padx=12, pady=(12, 6))
@@ -8214,6 +8214,30 @@ class App(ttk.Window):
                 conn = self.veritabani_baglan()
                 pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
                 rows = pipeline.eski_borc_kayitlari_getir()
+                if not rows:
+                    cur = conn.cursor()
+                    cur.execute(
+                        """
+                        SELECT id, COALESCE(tarih,''), COALESCE(danisan_adi,''),
+                               COALESCE(hizmet_bedeli,0), COALESCE(alinan_ucret,0), COALESCE(kalan_borc,0),
+                               COALESCE(notlar,''), COALESCE(seans_id,0)
+                        FROM records
+                        ORDER BY tarih DESC, id DESC
+                        """
+                    )
+                    for rid, tarih, danisan, hizmet, alinan, kalan, notlar, seans_id in cur.fetchall() or []:
+                        kalan_eff = float(kalan or 0)
+                        if kalan_eff <= 0:
+                            kalan_eff = max(0.0, float(hizmet or 0) - float(alinan or 0))
+                        if kalan_eff <= 0:
+                            continue
+                        rows.append({
+                            "record_id": int(rid or 0), "tarih": tarih, "danisan": danisan,
+                            "hizmet_bedeli": float(hizmet or 0), "alinan_ucret": float(alinan or 0), "kalan_borc": kalan_eff,
+                            "tur": "devir_borc" if "devir" in str(notlar or "").lower() else "kayit_borcu",
+                            "silinebilir": int(seans_id or 0) == 0 and float(alinan or 0) <= 0,
+                            "notlar": notlar,
+                        })
                 for r in rows:
                     tree.insert(
                         "",
@@ -8387,6 +8411,26 @@ class App(ttk.Window):
                 conn = self.veritabani_baglan()
                 pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
                 rows = pipeline.toplu_odeme_kayitlari_getir()
+                if not rows:
+                    cur = conn.cursor()
+                    cur.execute(
+                        """
+                        SELECT id, COALESCE(tarih,''), COALESCE(aciklama,''), COALESCE(tutar,0), COALESCE(record_id,0)
+                        FROM kasa_hareketleri
+                        WHERE LOWER(COALESCE(tip,'')) IN ('giren','gelir','in')
+                        ORDER BY id DESC
+                        """
+                    )
+                    for kid, tarih, aciklama, tutar, rid in cur.fetchall() or []:
+                        ac_low = str(aciklama or '').lower()
+                        if not any(k in ac_low for k in ('toplu ödeme','toplu odeme','peşinat','pesinat','ödeme:','odeme:')):
+                            continue
+                        rows.append({
+                            'kasa_id': int(kid or 0), 'tarih': tarih, 'aciklama': aciklama,
+                            'tutar': float(tutar or 0), 'record_id': int(rid or 0), 'danisan': '',
+                            'record_danisan': '', 'matched': bool(rid),
+                            'kayit_turu': 'toplu_odeme' if 'toplu' in ac_low else ('pesinat' if 'pesinat' in ac_low or 'peşinat' in ac_low else 'odeme')
+                        })
                 for r in rows:
                     durum = "Eşleşti" if r.get("matched") else "Eşleşmedi"
                     tag = "ok" if r.get("matched") else "bad"
