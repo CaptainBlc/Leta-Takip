@@ -2154,14 +2154,14 @@ class App(ttk.Window):
         ops_row.pack(fill=X)
         
         def create_dashboard_card(parent, title, value, icon, color, subtitle=""):
-            card = ttk.Labelframe(parent, text="", padding=12, bootstyle="secondary")
+            card = ttk.Labelframe(parent, text="", padding=8, bootstyle="secondary")
             card.pack(side=LEFT, fill=BOTH, expand=True, padx=5)
             
-            ttk.Label(card, text=icon, font=("Segoe UI", 20)).pack()
-            ttk.Label(card, text=str(value), font=("Segoe UI", 16, "bold"), bootstyle=color).pack(pady=(5, 0))
-            ttk.Label(card, text=title, font=("Segoe UI", 9), foreground="gray").pack()
+            ttk.Label(card, text=icon, font=("Segoe UI", 14)).pack()
+            ttk.Label(card, text=str(value), font=("Segoe UI", 12, "bold"), bootstyle=color).pack(pady=(2, 0))
+            ttk.Label(card, text=title, font=("Segoe UI", 8), foreground="gray").pack()
             if subtitle:
-                ttk.Label(card, text=subtitle, font=("Segoe UI", 8), foreground="darkgray").pack(pady=(2, 0))
+                ttk.Label(card, text=subtitle, font=("Segoe UI", 7), foreground="darkgray").pack(pady=(1, 0))
             return card
         
         ops = dashboard_data["operasyonel"]
@@ -2346,6 +2346,7 @@ class App(ttk.Window):
 
         ttk.Button(fin_frame, text="📉 Eski Borç Yükle (Devir)", bootstyle="danger", command=self.safe_call(self.popup_eski_borc, "popup_eski_borc")).pack(side=LEFT, padx=10)
         ttk.Button(fin_frame, text="💳 Toplu Ödeme Al (Bakiyeden Düş)", bootstyle="success", command=self.popup_toplu_odeme).pack(side=LEFT, padx=10)
+        ttk.Button(fin_frame, text="🧾 İleriye Dönük Ödeme (Avans)", bootstyle="primary", command=self.popup_ileri_odeme).pack(side=LEFT, padx=10)
         ttk.Label(top, text="Danışan Adı:", font=("Segoe UI", 10, "bold")).grid(row=0, column=2, padx=8, pady=8, sticky=W)
         danisan_frame = ttk.Frame(top)
         danisan_frame.grid(row=0, column=3, padx=8, pady=8, sticky=W)
@@ -8090,7 +8091,9 @@ class App(ttk.Window):
             try:
                 conn = self.veritabani_baglan()
                 pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
-                pipeline.toplu_odeme_al(danisan, tutar, aciklama=e_aciklama.get())
+                basarili = pipeline.toplu_odeme_al(danisan, tutar, aciklama=e_aciklama.get())
+                if not basarili:
+                    raise ValueError("Toplu ödeme kaydı oluşturulamadı.")
                 messagebox.showinfo("Başarılı", f"{tutar} TL tahsilat alındı.\nKasa defterine işlendi ve bakiyeden düşüldü.")
                 win.destroy()
                 self.kayitlari_listele()
@@ -8105,6 +8108,63 @@ class App(ttk.Window):
                     pass
 
         ttk.Button(win, text="TAHSİLAT YAP", bootstyle="success", command=kaydet).pack(pady=15)    
+
+    def popup_ileri_odeme(self):
+        """Borçtan bağımsız avans/ileri ödeme alır; kasa ve records'a avans kaydı açar."""
+        win = ttk.Toplevel(self)
+        win.title("İleriye Dönük Ödeme (Avans)")
+        center_window(win, 420, 300)
+
+        ttk.Label(win, text="Öğrenci Seç:", font=("Segoe UI", 10, "bold")).pack(pady=5)
+        values = []
+        if hasattr(self, 'cmb_danisan') and hasattr(self.cmb_danisan, 'cget'):
+             values = self.cmb_danisan['values']
+
+        c_danisan = ttk.Combobox(win, values=values, width=30)
+        c_danisan.pack(pady=5)
+
+        ttk.Label(win, text="Ödenen Tutar (TL):", font=("Segoe UI", 10, "bold")).pack(pady=5)
+        e_tutar = ttk.Entry(win)
+        e_tutar.pack(pady=5)
+
+        ttk.Label(win, text="Açıklama:", font=("Segoe UI", 10)).pack(pady=5)
+        e_aciklama = ttk.Entry(win)
+        e_aciklama.insert(0, "İleriye Dönük Ödeme / Avans")
+        e_aciklama.pack(pady=5)
+
+        def kaydet():
+            danisan = (c_danisan.get() or "").strip()
+            try:
+                tutar = float((e_tutar.get() or "0").replace(",", "."))
+            except Exception:
+                messagebox.showerror("Hata", "Geçerli tutar girin.")
+                return
+
+            if not danisan or tutar <= 0:
+                messagebox.showwarning("Eksik", "Öğrenci seçin ve pozitif tutar girin.")
+                return
+
+            conn = None
+            try:
+                conn = self.veritabani_baglan()
+                pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
+                basarili = pipeline.toplu_odeme_al(danisan, tutar, aciklama=e_aciklama.get() or "İleriye Dönük Ödeme / Avans")
+                if not basarili:
+                    raise ValueError("Avans ödeme kaydı oluşturulamadı.")
+                messagebox.showinfo("Başarılı", f"{format_money(tutar)} avans tahsil edildi.\nKasa defterine işlendi.")
+                win.destroy()
+                self.kayitlari_listele()
+                self._refresh_borc_tables()
+            except Exception as e:
+                messagebox.showerror("Hata", str(e))
+            finally:
+                try:
+                    if conn is not None:
+                        conn.close()
+                except Exception:
+                    pass
+
+        ttk.Button(win, text="AVANS TAHSİL ET", bootstyle="primary", command=kaydet).pack(pady=15)
 
     def eski_veri_migration(self):
         """
