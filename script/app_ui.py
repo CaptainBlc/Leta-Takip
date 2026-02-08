@@ -8,6 +8,7 @@ from pipeline import DataPipeline
 import sys
 import traceback
 import pandas as pd
+import sqlite3
 from core.logging_utils import log_exception
 from core.platform import configure_macos_scaling
 from core.window import center_window, center_window_smart, maximize_window
@@ -69,8 +70,8 @@ class App(ttk.Window):
             sw = max(1, int(win.winfo_screenwidth() or 1))
             sh = max(1, int(win.winfo_screenheight() or 1))
 
-            ww = max(320, int(win.winfo_width() or 320))
-            wh = max(220, int(win.winfo_height() or 220))
+            ww = max(320, int(max(win.winfo_width() or 0, win.winfo_reqwidth() or 0, 320)))
+            wh = max(220, int(max(win.winfo_height() or 0, win.winfo_reqheight() or 0, 220)))
 
             max_w = max(320, sw - 60)
             max_h = max(220, sh - 100)
@@ -97,6 +98,10 @@ class App(ttk.Window):
                 return
             if getattr(w, "_auto_screen_fitted", False):
                 return
+            try:
+                w.resizable(True, True)
+            except Exception:
+                pass
             self._fit_window_to_screen(w)
             w._auto_screen_fitted = True
         except Exception:
@@ -2012,10 +2017,7 @@ class App(ttk.Window):
         self.nb.add(self.tab_ucret_takibi, text="ÜCRET TAKİPİ")
         self._build_ucret_takibi_tab()
 
-        # ÇOCUK GÜNLÜK TAKİP - Oda ve personel takibi
-        self.tab_cocuk_gunluk = ttk.Frame(self.nb, padding=10)
-        self.nb.add(self.tab_cocuk_gunluk, text="ÇOCUK GÜNLÜK TAKİP")
-        self._build_cocuk_gunluk_tab()
+        # Çocuk günlük takip modülü kaldırıldı (talep doğrultusunda).
 
         # KASA DEFTERİ - Günlük/haftalık/aylık raporlar
         self.tab_kasa = ttk.Frame(self.nb, padding=10)
@@ -2075,7 +2077,7 @@ class App(ttk.Window):
 
         ttk.Label(
             wrapper,
-            text="Çocuk Günlük Takip: Seanslardan otomatik oluşan günlük operasyon kayıtlarını (oda/personel) izlemek için kullanılır.",
+            text="Ücret takip modülü: seans, ödeme ve personel ücret kayıtlarını merkezi olarak izlemek için kullanılır.",
             font=("Segoe UI", 9),
             foreground="gray",
         ).pack(anchor=W, pady=(0, 6))
@@ -2767,7 +2769,7 @@ class App(ttk.Window):
         def _akilli_varsayilanlar_ata_hizli(*args):
             """Yeni seans kaydı için danışan+hoca fiyatını otomatik doldurur."""
             try:
-                danisan_adi = (cb_dan.get() or "").strip().upper()
+                danisan_adi = (cb_dan.get() or "").strip()
                 terapist_adi = (cb_ter.get() or "").strip()
                 if not danisan_adi or not terapist_adi:
                     return
@@ -2809,7 +2811,7 @@ class App(ttk.Window):
         ent_not.grid(row=5, column=1, sticky=W, padx=6, pady=6)
 
         def _save():
-            danisan = (cb_dan.get() or "").strip().upper()
+            danisan = (cb_dan.get() or "").strip()
             terapist = (cb_ter.get() or "").strip()
             if not danisan:
                 messagebox.showwarning("Uyarı", "Lütfen danışan adını giriniz!")
@@ -3403,7 +3405,7 @@ class App(ttk.Window):
         
         ttk.Label(
             wrapper,
-            text="Çocuk Günlük Takip: Seanslardan otomatik oluşan günlük operasyon kayıtlarını (oda/personel) izlemek için kullanılır.",
+            text="Ücret takip modülü: seans, ödeme ve personel ücret kayıtlarını merkezi olarak izlemek için kullanılır.",
             font=("Segoe UI", 9),
             foreground="gray",
         ).pack(anchor=W, pady=(0, 6))
@@ -4573,7 +4575,7 @@ class App(ttk.Window):
         
         ttk.Label(
             wrapper,
-            text="Çocuk Günlük Takip: Seanslardan otomatik oluşan günlük operasyon kayıtlarını (oda/personel) izlemek için kullanılır.",
+            text="Ücret takip modülü: seans, ödeme ve personel ücret kayıtlarını merkezi olarak izlemek için kullanılır.",
             font=("Segoe UI", 9),
             foreground="gray",
         ).pack(anchor=W, pady=(0, 6))
@@ -4740,7 +4742,7 @@ class App(ttk.Window):
         
         ttk.Label(
             wrapper,
-            text="Çocuk Günlük Takip: Seanslardan otomatik oluşan günlük operasyon kayıtlarını (oda/personel) izlemek için kullanılır.",
+            text="Ücret takip modülü: seans, ödeme ve personel ücret kayıtlarını merkezi olarak izlemek için kullanılır.",
             font=("Segoe UI", 9),
             foreground="gray",
         ).pack(anchor=W, pady=(0, 6))
@@ -5411,7 +5413,7 @@ class App(ttk.Window):
         
         ttk.Label(
             wrapper,
-            text="Çocuk Günlük Takip: Seanslardan otomatik oluşan günlük operasyon kayıtlarını (oda/personel) izlemek için kullanılır.",
+            text="Ücret takip modülü: seans, ödeme ve personel ücret kayıtlarını merkezi olarak izlemek için kullanılır.",
             font=("Segoe UI", 9),
             foreground="gray",
         ).pack(anchor=W, pady=(0, 6))
@@ -5783,7 +5785,7 @@ class App(ttk.Window):
         
         ttk.Label(
             wrapper,
-            text="Çocuk Günlük Takip: Seanslardan otomatik oluşan günlük operasyon kayıtlarını (oda/personel) izlemek için kullanılır.",
+            text="Ücret takip modülü: seans, ödeme ve personel ücret kayıtlarını merkezi olarak izlemek için kullanılır.",
             font=("Segoe UI", 9),
             foreground="gray",
         ).pack(anchor=W, pady=(0, 6))
@@ -5848,7 +5850,8 @@ class App(ttk.Window):
         ttk.Label(danisan_actions, text="Seçili öğrenci işlemleri:", font=("Segoe UI", 10, "bold")).pack(side=LEFT, padx=(0, 8))
         ttk.Button(danisan_actions, text="✏️ Düzenle", bootstyle="secondary-outline", command=lambda: self._danisan_duzenle_from_tree(tree_danisanlar)).pack(side=LEFT, padx=4)
         ttk.Button(danisan_actions, text="📊 Detaylı Bilgi", bootstyle="info-outline", command=lambda: self._danisan_detayli_bilgi(tree_danisanlar)).pack(side=LEFT, padx=4)
-        ttk.Button(danisan_actions, text="🗑️ Danışanı Kaldır", bootstyle="danger-outline", command=lambda: self._danisan_aktif_pasif_from_tree(tree_danisanlar)).pack(side=LEFT, padx=4)
+        ttk.Button(danisan_actions, text="🔁 Aktif/Pasif", bootstyle="warning-outline", command=lambda: self._danisan_aktif_pasif_from_tree(tree_danisanlar)).pack(side=LEFT, padx=4)
+        ttk.Button(danisan_actions, text="🗑️ Danışanı Sil (Kalıcı)", bootstyle="danger-outline", command=lambda: self._danisan_sil_from_tree(tree_danisanlar)).pack(side=LEFT, padx=4)
         
         wrapper._tree_danisanlar = tree_danisanlar
         self.tab_ogrenci_bilgileri.danisan_tree = tree_danisanlar
@@ -6614,7 +6617,42 @@ class App(ttk.Window):
             log_exception("_danisan_detayli_bilgi", e)
     
     def _danisan_aktif_pasif_from_tree(self, tree):
-        """Seçili danışanı aktif listeden kaldır (soft-delete: aktif=0)."""
+        """Seçili danışanın aktif/pasif durumunu değiştir."""
+        sel = tree.selection()
+        if not sel:
+            return
+        vals = tree.item(sel[0]).get("values") or []
+        if len(vals) < 8:
+            messagebox.showerror("Hata", "Seçili satır bilgisi okunamadı.")
+            return
+
+        danisan_id = vals[0]
+        danisan_adi = vals[1]
+        mevcut_durum = str(vals[7] or "").strip().lower()
+        yeni_aktif = 0 if mevcut_durum == "aktif" else 1
+
+        if not messagebox.askyesno(
+            "Onay",
+            f"{danisan_adi} için durum {'Aktif' if yeni_aktif else 'Pasif'} yapılsın mı?",
+        ):
+            return
+
+        try:
+            conn = self.veritabani_baglan()
+            cur = conn.cursor()
+            cur.execute("UPDATE danisanlar SET aktif=? WHERE id=?", (yeni_aktif, danisan_id))
+            conn.commit()
+            conn.close()
+
+            messagebox.showinfo("Başarılı", f"{danisan_adi} durumu {'Aktif' if yeni_aktif else 'Pasif'} olarak güncellendi.")
+            parent = tree.master.master
+            self._tum_danisanlari_listele(parent)
+        except Exception as e:
+            messagebox.showerror("Hata", f"Durum güncellenemedi:\n{e}")
+            log_exception("_danisan_aktif_pasif_from_tree", e)
+
+    def _danisan_sil_from_tree(self, tree):
+        """Seçili danışanı veritabanından kalıcı olarak sil."""
         sel = tree.selection()
         if not sel:
             return
@@ -6627,25 +6665,32 @@ class App(ttk.Window):
         danisan_adi = vals[1]
 
         if not messagebox.askyesno(
-            "Onay",
-            f"{danisan_adi} danışanını listeden kaldırmak istediğinize emin misiniz?\n\n"
-            "Bu işlem danışanı pasife alır (aktif=0).",
+            "Kalıcı Silme Onayı",
+            f"{danisan_adi} danışanı veritabanından KALICI olarak silinsin mi?\n\n"
+            "Bu işlem geri alınamaz.",
         ):
             return
 
         try:
             conn = self.veritabani_baglan()
             cur = conn.cursor()
-            cur.execute("UPDATE danisanlar SET aktif=0 WHERE id=?", (danisan_id,))
+            cur.execute("DELETE FROM danisanlar WHERE id=?", (danisan_id,))
             conn.commit()
             conn.close()
 
-            messagebox.showinfo("Başarılı", f"{danisan_adi} danışanı kaldırıldı (pasif yapıldı).")
+            messagebox.showinfo("Başarılı", f"{danisan_adi} danışanı kalıcı olarak silindi.")
             parent = tree.master.master
             self._tum_danisanlari_listele(parent)
+            self._refresh_borc_tables()
+        except sqlite3.IntegrityError:
+            messagebox.showerror(
+                "Silme Engellendi",
+                "Danışana bağlı kayıtlar bulunduğu için doğrudan silinemedi.\n"
+                "Önce bağlı seans/ödeme kayıtlarını temizleyin.",
+            )
         except Exception as e:
-            messagebox.showerror("Hata", f"Danışan kaldırılamadı:\n{e}")
-            log_exception("_danisan_aktif_pasif_from_tree", e)
+            messagebox.showerror("Hata", f"Danışan silinemedi:\n{e}")
+            log_exception("_danisan_sil_from_tree", e)
 
 
     # ==================== RAPOR OLUŞTURMA FONKSİYONLARI ====================
@@ -9628,7 +9673,7 @@ class App(ttk.Window):
                 cur = conn.cursor()
                 t = (tarih_var.get() or "").strip()
                 s = (saat_cb.get() or "").strip() or self._default_saat()
-                d = (dan_cb.get() or "").strip().upper()
+                d = (dan_cb.get() or "").strip()
                 ter = (ter_cb.get() or "").strip()
                 nt = (ent_not.get() or "").strip()
                 cur.execute(

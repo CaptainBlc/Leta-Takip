@@ -119,7 +119,7 @@ class DataPipeline:
                 if rid and ad == hedef:
                     return rid
 
-            kayit_adi = " ".join((danisan_upper or "").strip().upper().split())
+            kayit_adi = " ".join((danisan_upper or "").strip().split())
             self.cur.execute(
                 """
                 INSERT INTO danisanlar
@@ -214,7 +214,7 @@ class DataPipeline:
         skip_pricing_update: bool = False,
         ensure_danisan: bool = True,
     ) -> int | None:
-        danisan_upper = (danisan_adi or "").strip().upper()
+        danisan_clean = (danisan_adi or "").strip()
         terapist = (terapist or "").strip()
         tarih = (tarih or "").strip()
         saat = (saat or "").strip()
@@ -224,15 +224,15 @@ class DataPipeline:
         hb = self._safe_float(hizmet_bedeli)
         au = self._safe_float(alinan_ucret)
 
-        if not tarih or not danisan_upper or not terapist:
+        if not tarih or not danisan_clean or not terapist:
             return None
 
         try:
             self.conn.execute("BEGIN")
 
-            cocuk_id = self._get_cocuk_id(danisan_upper)
+            cocuk_id = self._get_cocuk_id(danisan_clean)
             if ensure_danisan and cocuk_id is None:
-                cocuk_id = self._ensure_danisan_exists(danisan_upper)
+                cocuk_id = self._ensure_danisan_exists(danisan_clean)
 
             if check_oda_cakisma and oda and self.check_oda_cakismasi(tarih, saat, oda):
                 self.conn.rollback()
@@ -253,7 +253,7 @@ class DataPipeline:
                     (
                         tarih,
                         saat,
-                        danisan_upper,
+                        danisan_clean,
                         terapist,
                         oda,
                         "planlandi",
@@ -277,7 +277,7 @@ class DataPipeline:
                     (tarih, saat, danisan_adi, terapist, hizmet_bedeli, alinan_ucret, kalan_borc, seans_alindi, notlar, olusturma_tarihi, seans_id)
                     VALUES (?,?,?,?,?,?,?,?,?,?,?)
                     """,
-                    (tarih, saat, danisan_upper, terapist, hb, au, kalan, 0, notlar, self._now(), seans_id),
+                    (tarih, saat, danisan_clean, terapist, hb, au, kalan, 0, notlar, self._now(), seans_id),
                 )
                 record_id = int(self.cur.lastrowid or 0) or None
 
@@ -301,7 +301,7 @@ class DataPipeline:
                 self._add_kasa(
                     tarih,
                     "giren",
-                    f"Seans Tahsilat: {danisan_upper}/{terapist}",
+                    f"Seans Tahsilat: {danisan_clean}/{terapist}",
                     au,
                     "",
                     "Seans",
@@ -326,23 +326,9 @@ class DataPipeline:
                 except Exception as e:
                     log_exception("pipeline.personel_ucret_insert", e)
 
-            # çocuk günlük takip entegrasyonu: seans kaydıyla günlük operasyon kaydı oluştur
-            if seans_id and cocuk_id and self.table_exists("cocuk_gunluk_takip"):
-                try:
-                    self.cur.execute(
-                        """
-                        INSERT INTO cocuk_gunluk_takip
-                        (cocuk_id, tarih, oda_adi, personel_adi, seans_id, notlar, olusturma_tarihi)
-                        VALUES (?,?,?,?,?,?,?)
-                        """,
-                        (cocuk_id, tarih, oda, terapist, seans_id, "Seans kaydından otomatik üretildi", self._now()),
-                    )
-                except Exception as e:
-                    log_exception("pipeline.cocuk_gunluk_insert", e)
-
             self._audit("seans_kayit", "seans_takvimi", seans_id, {
                 "record_id": record_id,
-                "danisan_adi": danisan_upper,
+                "danisan_adi": danisan_clean,
                 "terapist": terapist,
                 "hizmet_bedeli": hb,
                 "alinan_ucret": au,
@@ -514,7 +500,7 @@ class DataPipeline:
         else:
             tarih = str(tarih).strip()
 
-        danisan_upper = (danisan_adi or "").strip().upper()
+        danisan_clean = (danisan_adi or "").strip()
         tutar = self._safe_float(tutar)
         if not danisan_upper or tutar <= 0:
             return None
