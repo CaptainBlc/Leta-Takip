@@ -2430,6 +2430,7 @@ class App(ttk.Window):
         fin_frame.pack(fill=X, pady=10, padx=5)
 
         ttk.Button(fin_frame, text="📉 Eski Borç Yükle (Devir)", bootstyle="danger", command=self.safe_call(self.popup_eski_borc, "popup_eski_borc")).pack(side=LEFT, padx=10)
+        ttk.Button(fin_frame, text="🗑️ Eski Borç Sil", bootstyle="secondary", command=self.safe_call(self.popup_eski_borc_sil, "popup_eski_borc_sil")).pack(side=LEFT, padx=10)
         ttk.Button(fin_frame, text="💳 Toplu Ödeme Al (Bakiyeden Düş)", bootstyle="success", command=self.popup_toplu_odeme).pack(side=LEFT, padx=10)
         ttk.Label(top, text="Danışan Adı:", font=("Segoe UI", 10, "bold")).grid(row=0, column=2, padx=8, pady=8, sticky=W)
         danisan_frame = ttk.Frame(top)
@@ -8146,6 +8147,129 @@ class App(ttk.Window):
                     pass
 
         ttk.Button(win, text="DEVİR BORCU EKLE", bootstyle="danger", command=kaydet).pack(pady=15)
+
+    def popup_eski_borc_sil(self):
+        """Yanlış girilen devir borcu kayıtlarını seçip silme ekranı."""
+        win = ttk.Toplevel(self)
+        win.title("Eski Borç Kaydı Sil")
+        center_window_smart(win, 780, 500, min_w=720, min_h=440)
+
+        ttk.Label(
+            win,
+            text="Sadece ödeme almamış devir borcu kayıtları silinebilir.",
+            bootstyle="warning",
+            font=("Segoe UI", 10, "bold"),
+        ).pack(anchor=W, padx=12, pady=(12, 6))
+
+        cols = ("rid", "tarih", "danisan", "hizmet", "alinan", "kalan", "not")
+        tree = ttk.Treeview(win, columns=cols, show="headings", height=14)
+        headers = [
+            ("rid", "Record ID", 85),
+            ("tarih", "Tarih", 110),
+            ("danisan", "Danışan", 170),
+            ("hizmet", "Borç", 110),
+            ("alinan", "Alınan", 110),
+            ("kalan", "Kalan", 110),
+            ("not", "Not", 220),
+        ]
+        for c, h, w in headers:
+            tree.heading(c, text=h)
+            tree.column(c, width=w, anchor=(CENTER if c in {"rid", "hizmet", "alinan", "kalan"} else W))
+
+        wrap = ttk.Frame(win)
+        wrap.pack(fill=BOTH, expand=True, padx=12, pady=6)
+        tree.pack(in_=wrap, side=LEFT, fill=BOTH, expand=True)
+        sb = ttk.Scrollbar(wrap, orient=VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=sb.set)
+        sb.pack(side=RIGHT, fill=Y)
+
+        def _load_rows():
+            for iid in tree.get_children():
+                tree.delete(iid)
+            conn = None
+            try:
+                conn = self.veritabani_baglan()
+                params = []
+                where_extra = ""
+                if not (self.kullanici_yetki == "kurum_muduru" or not self.kullanici_terapist):
+                    where_extra = " AND COALESCE(terapist,'')=?"
+                    params.append(self.kullanici_terapist)
+                sql = (
+                    "SELECT id, COALESCE(tarih,''), COALESCE(danisan_adi,''), COALESCE(hizmet_bedeli,0), "
+                    "COALESCE(alinan_ucret,0), COALESCE(kalan_borc,0), COALESCE(notlar,'') "
+                    "FROM records WHERE COALESCE(seans_id,0)=0 "
+                    "AND ("
+                    "UPPER(COALESCE(notlar,'')) LIKE '%DEVIR BORC%' OR "
+                    "UPPER(COALESCE(notlar,'')) LIKE '%DEVİR BORÇ%' OR "
+                    "UPPER(COALESCE(notlar,'')) LIKE '%DEVIR BORÇ%' OR "
+                    "UPPER(COALESCE(notlar,'')) LIKE '%DEVİR BORC%'"
+                    ")"
+                    + where_extra
+                    + " ORDER BY tarih DESC, id DESC"
+                )
+                cur = conn.cursor()
+                cur.execute(sql, tuple(params))
+                for rid, tarih, danisan, hizmet, alinan, kalan, notlar in cur.fetchall():
+                    tree.insert(
+                        "",
+                        END,
+                        values=(rid, tarih, danisan, format_money(hizmet), format_money(alinan), format_money(kalan), notlar),
+                    )
+            except Exception as e:
+                messagebox.showerror("Hata", f"Liste yüklenemedi:\n{e}")
+            finally:
+                try:
+                    if conn is not None:
+                        conn.close()
+                except Exception:
+                    pass
+
+        def _secili_id():
+            sel = tree.selection()
+            if not sel:
+                return None
+            vals = tree.item(sel[0], "values")
+            try:
+                return int(vals[0])
+            except Exception:
+                return None
+
+        def _sil():
+            rid = _secili_id()
+            if not rid:
+                messagebox.showwarning("Uyarı", "Lütfen silinecek kaydı seçin.")
+                return
+            if not messagebox.askyesno("Onay", "Seçili devir borcu kaydı silinsin mi?"):
+                return
+            conn = None
+            try:
+                conn = self.veritabani_baglan()
+                pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
+                ok = pipeline.eski_borc_sil(rid)
+                if not ok:
+                    messagebox.showwarning("Uyarı", "Kayıt silinemedi. Bu kayıt seans bağlantılı olabilir veya ödeme almıştır.")
+                    return
+                messagebox.showinfo("Başarılı", "Devir borcu kaydı silindi.")
+                _load_rows()
+                self.kayitlari_listele()
+                self._refresh_borc_tables()
+                self._refresh_open_reports()
+            except Exception as e:
+                messagebox.showerror("Hata", f"Silme hatası:\n{e}")
+            finally:
+                try:
+                    if conn is not None:
+                        conn.close()
+                except Exception:
+                    pass
+
+        btns = ttk.Frame(win)
+        btns.pack(fill=X, padx=12, pady=(6, 12))
+        ttk.Button(btns, text="Yenile", bootstyle="info", command=_load_rows).pack(side=LEFT)
+        ttk.Button(btns, text="Seçili Kaydı Sil", bootstyle="danger", command=_sil).pack(side=LEFT, padx=8)
+        ttk.Button(btns, text="Kapat", bootstyle="secondary", command=win.destroy).pack(side=RIGHT)
+
+        _load_rows()
 
     def popup_toplu_odeme(self):
         """Toplu ödeme alma penceresi"""

@@ -537,6 +537,63 @@ class DataPipeline:
             log_exception("pipeline.eski_borc_ekle", e)
             return None
 
+    def eski_borc_sil(self, record_id: int) -> bool:
+        """Hızlı finansal modülden açılan devir borcu kaydını siler (yalnızca ödeme yoksa)."""
+        if not self.table_exists("records"):
+            return False
+        try:
+            rid = int(record_id)
+        except Exception:
+            return False
+
+        try:
+            self.conn.execute("BEGIN")
+            self.cur.execute(
+                """
+                SELECT COALESCE(seans_id,0), COALESCE(alinan_ucret,0), COALESCE(notlar,''), COALESCE(danisan_adi,'')
+                FROM records WHERE id=?
+                """,
+                (rid,),
+            )
+            row = self.cur.fetchone()
+            if not row:
+                self.conn.rollback()
+                return False
+
+            seans_id, alinan, notlar, danisan = row
+            notlar_n = str(notlar or "").strip().upper()
+            notlar_norm = notlar_n.translate(str.maketrans("ÇĞİÖŞÜ", "CGIOSU"))
+            devir_notu_mu = "DEVIR BORC" in notlar_norm
+            if int(seans_id or 0) != 0 or not devir_notu_mu:
+                self.conn.rollback()
+                return False
+
+            if self._safe_float(alinan) > 0:
+                self.conn.rollback()
+                return False
+
+            if self.table_exists("odeme_hareketleri"):
+                self.cur.execute("DELETE FROM odeme_hareketleri WHERE record_id=?", (rid,))
+            if self.table_exists("kasa_hareketleri"):
+                self.cur.execute("DELETE FROM kasa_hareketleri WHERE record_id=?", (rid,))
+            self.cur.execute("DELETE FROM records WHERE id=?", (rid,))
+
+            if self.table_exists("sistem_gunlugu"):
+                self.cur.execute(
+                    "INSERT INTO sistem_gunlugu (tarih, olay, aciklama, olusturma_tarihi) VALUES (?,?,?,?)",
+                    (self._today(), "DEVIR_BORC_SIL", f"record_id={rid} danisan={danisan}", self._now()),
+                )
+
+            self.conn.commit()
+            return True
+        except Exception as e:
+            try:
+                self.conn.rollback()
+            except Exception:
+                pass
+            log_exception("pipeline.eski_borc_sil", e)
+            return False
+
     # ---------- API: Kasa ----------
     def add_manual_kasa_entry(self, tarih: str, tip: str, aciklama: str, tutar: float, odeme_sekli: str = "", gider_kategorisi: str = "") -> bool:
         try:
