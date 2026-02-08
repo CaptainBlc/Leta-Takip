@@ -34,10 +34,23 @@ def _ensure_minimum_schema(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS settings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             therapist_name TEXT UNIQUE,
-            is_active INTEGER DEFAULT 1
+            therapist_role TEXT DEFAULT '',
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT
         )
         """
     )
+
+    # settings eski şemalardan geliyorsa eksik kolonları tamamla
+    try:
+        cur.execute("PRAGMA table_info(settings)")
+        s_cols = [r[1] for r in cur.fetchall()]
+        if "therapist_role" not in s_cols:
+            cur.execute("ALTER TABLE settings ADD COLUMN therapist_role TEXT DEFAULT ''")
+        if "created_at" not in s_cols:
+            cur.execute("ALTER TABLE settings ADD COLUMN created_at TEXT")
+    except Exception:
+        pass
 
     # Danışan temel tablosu
     cur.execute(

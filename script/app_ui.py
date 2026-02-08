@@ -35,7 +35,7 @@ class App(ttk.Window):
 
         # giriş yapan kullanıcı
         self.kullanici = None  # (id, kullanici_adi, ad_soyad, yetki, terapist_adi)
-        self.kullanici_yetki = "normal"
+        self.kullanici_yetki = "kurum_muduru"
         self.kullanici_terapist = None
 
         self._vcmd_money = (self.register(self._validate_money), "%P")
@@ -303,7 +303,7 @@ class App(ttk.Window):
         try:
             # kullanıcıyı temizle
             self.kullanici = None
-            self.kullanici_yetki = "normal"
+            self.kullanici_yetki = "kurum_muduru"
             self.kullanici_terapist = None
 
             # tüm mevcut UI'ı kaldır
@@ -535,7 +535,7 @@ class App(ttk.Window):
             row = cur.fetchone()
             if row and (row[5] or "") == hash_pass(p):
                 ok = True
-                user_row = (row[0], row[1], row[2] or row[1], row[3] or "egitim_gorevlisi", row[4])
+                user_row = (row[0], row[1], row[2] or row[1], "kurum_muduru", row[4])
                 try:
                     cur.execute(
                         "UPDATE users SET last_login=? WHERE id=?",
@@ -554,7 +554,7 @@ class App(ttk.Window):
             return
 
         self.kullanici = user_row
-        self.kullanici_yetki = (user_row[3] if user_row else "normal") if ok else "normal"
+        self.kullanici_yetki = "kurum_muduru"
         self.kullanici_terapist = (user_row[4] if user_row else None)
 
         # Login başarılı -> ana UI (hata olursa kullanıcıya göster + logla)
@@ -11929,7 +11929,7 @@ class RegisterDialog(ttk.Toplevel):
         self.ent_pw = field("Şifre *:", show="*")
         self.ent_pw2 = field("Şifre Tekrar *:", show="*")
 
-        note = "Not: İlk kullanıcı 'kurum_muduru' rolüyle oluşturulur." if self.first_setup else "Not: Yeni kayıtlar 'egitim_gorevlisi' rolü ile açılır."
+        note = "Not: Bu sürümde tüm kullanıcılar Kurum Müdürü yetkisiyle açılır."
         ttk.Label(frm, text=note, foreground="gray").pack(pady=(10, 0))
 
         def _save():
@@ -11962,7 +11962,7 @@ class RegisterDialog(ttk.Toplevel):
                     conn.close()
                     messagebox.showerror("Hata", "Bu kullanıcı adı zaten var!")
                     return
-                access_role = ("kurum_muduru" if self.first_setup else "egitim_gorevlisi")
+                access_role = "kurum_muduru"
                 cur.execute(
                     """
                     INSERT INTO users (username, password_hash, role, access_role, title_role, full_name, email, created_at, is_active)
