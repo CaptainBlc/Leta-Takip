@@ -79,6 +79,43 @@ def _ensure_minimum_schema(conn: sqlite3.Connection) -> None:
     except Exception:
         pass
 
+    # Öğrenci aile bilgileri
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ogrenci_aile_bilgileri (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ogrenci_id INTEGER NOT NULL,
+            veli_adi TEXT NOT NULL,
+            yakinlik TEXT,
+            telefon TEXT,
+            email TEXT,
+            adres TEXT,
+            notlar TEXT,
+            olusturma_tarihi TEXT,
+            FOREIGN KEY (ogrenci_id) REFERENCES danisanlar(id)
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_aile_ogrenci ON ogrenci_aile_bilgileri(ogrenci_id)")
+
+    # Öğrenci kimlik bilgileri
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ogrenci_kimlik_bilgileri (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ogrenci_id INTEGER NOT NULL UNIQUE,
+            tc_kimlik_no TEXT,
+            dogum_tarihi TEXT,
+            dogum_yeri TEXT,
+            notlar TEXT,
+            olusturma_tarihi TEXT,
+            guncelleme_tarihi TEXT,
+            FOREIGN KEY (ogrenci_id) REFERENCES danisanlar(id)
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_kimlik_tc ON ogrenci_kimlik_bilgileri(tc_kimlik_no)")
+
     # Danışan temel tablosu
     cur.execute(
         """

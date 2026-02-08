@@ -221,7 +221,7 @@ class DataPipeline:
                     (tarih, saat, danisan_adi, terapist, oda, durum, notlar,
                      hizmet_bedeli, odeme_sekli, seans_alindi, ucret_alindi,
                      olusturma_tarihi, olusturan_kullanici_id, record_id)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
                     (
                         tarih,
