@@ -2649,7 +2649,7 @@ class App(ttk.Window):
             txt_adres.pack(fill=X, pady=2)
             
             def _kaydet():
-                ad_soyad = (ent_ad.get() or "").strip().upper()
+                ad_soyad = (ent_ad.get() or "").strip()
                 if not ad_soyad:
                     messagebox.showwarning("Uyarı", "AD SOYAD zorunludur!")
                     return
@@ -4778,6 +4778,8 @@ class App(ttk.Window):
         ent_tarih.pack(side=LEFT, padx=5)
         
         ttk.Button(date_frame, text="🔄 Raporu Göster", bootstyle="primary",
+                   command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=5)
+        ttk.Button(date_frame, text="↻ Yenile", bootstyle="secondary",
                    command=lambda: self._kasa_rapor_yukle(wrapper)).pack(side=LEFT, padx=5)
         ttk.Button(date_frame, text="📊 Rapor Hazırla (Excel)", bootstyle="success",
                    command=lambda: self._kasa_rapor_hazirla_excel(wrapper)).pack(side=LEFT, padx=5)
@@ -7589,12 +7591,12 @@ class App(ttk.Window):
         ttk.Button(right, text="Seçiliyi Sil", bootstyle="danger", command=self.terapist_sil).pack(fill=X, pady=(0, 6))
         ttk.Button(right, text="Excel'e Aktar", bootstyle="primary", command=self.excel_aktar).pack(fill=X, pady=(0, 12))
         
-        # ✅ VERİ İÇE AKTAR: AYARLAR sekmesine de ekle (Kurum Müdürü için)
+        # Kurum müdürü için bu bölüm sadece logo yükleme olarak sadeleştirildi
         if self.kullanici_yetki == "kurum_muduru":
             ttk.Separator(right, orient=HORIZONTAL).pack(fill=X, pady=(0, 12))
-            ttk.Label(right, text="Veri Yönetimi", font=("Segoe UI", 10, "bold")).pack(anchor=W, pady=(0, 6))
-            ttk.Button(right, text="🔄 Veri İçe Aktar", bootstyle="info", command=self.eski_veri_migration, width=28).pack(fill=X, pady=(0, 6))
-            ttk.Label(right, text="Eski verileri Excel template ile yükle", font=("Segoe UI", 8), foreground="gray", wraplength=200).pack(anchor=W, pady=(0, 12))
+            ttk.Label(right, text="Kurum Görseli", font=("Segoe UI", 10, "bold")).pack(anchor=W, pady=(0, 6))
+            ttk.Button(right, text="🖼️ Logo Yükle/Değiştir", bootstyle="info", command=self.logo_yukle_degistir, width=28).pack(fill=X, pady=(0, 6))
+            ttk.Label(right, text="Ayarlar içinden sadece logo yönetimi yapılır.", font=("Segoe UI", 8), foreground="gray", wraplength=200).pack(anchor=W, pady=(0, 12))
 
         self.lst.bind("<<TreeviewSelect>>", self._on_terapist_select)
         
@@ -9812,7 +9814,7 @@ class App(ttk.Window):
                 messagebox.showwarning("Uyarı", "Ad Soyad zorunludur!")
                 return
             try:
-                danisan_adi = (ent_ad.get() or "").strip().upper()
+                danisan_adi = (ent_ad.get() or "").strip()
                 conn = self.veritabani_baglan()
                 cur = conn.cursor()
                 cur.execute(
@@ -9917,7 +9919,7 @@ class App(ttk.Window):
                     VALUES (?,?,?,?,?,?,?,?,?,1)
                     """,
                     (
-                        (ent_ad.get() or "").strip().upper(),
+                        (ent_ad.get() or "").strip(),
                         (ent_tel.get() or "").strip(),
                         (ent_email.get() or "").strip(),
                         (ent_veli.get() or "").strip(),
@@ -10647,7 +10649,7 @@ class App(ttk.Window):
                     WHERE id=?
                     """,
                     (
-                        (ent_ad.get() or "").strip().upper(),
+                        (ent_ad.get() or "").strip(),
                         (ent_veli.get() or "").strip(),
                         (ent_veli_tel.get() or "").strip(),
                         (ent_dogum.get() or "").strip(),
