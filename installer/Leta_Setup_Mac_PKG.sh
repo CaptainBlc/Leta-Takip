@@ -38,19 +38,14 @@ fi
 
 # PyInstaller build kontrolü (.app macOS'ta Leta_Pipeline_Mac.spec ile oluşturulur)
 if [ ! -d "dist/${APP_NAME}.app" ]; then
-  detected_app=""
-  for app in dist/*.app; do
-    if [ -d "$app" ]; then
-      if [ -n "${detected_app}" ]; then
-        detected_app=""
-        break
-      fi
-      detected_app="$app"
-    fi
-  done
+  detected_app="$(ls -td dist/*.app 2>/dev/null | head -n 1 || true)"
   if [ -n "${detected_app}" ]; then
+    if [ "$(ls -td dist/*.app 2>/dev/null | wc -l | tr -d ' ')" -gt 1 ]; then
+      echo "⚠️  UYARI: Birden fazla .app bulundu, en yenisi seçildi: ${detected_app}"
+    else
+      echo "⚠️  UYARI: dist/${APP_NAME}.app yerine mevcut bundle bulundu: ${detected_app}"
+    fi
     APP_NAME="$(basename "${detected_app}" .app)"
-    echo "⚠️  UYARI: dist/${APP_NAME}.app yerine mevcut bundle bulundu: ${detected_app}"
   else
     echo "❌ HATA: dist/${APP_NAME}.app bulunamadı!"
     echo "📦 macOS için önce: pyinstaller --noconfirm --clean Leta_Pipeline_Mac.spec"
