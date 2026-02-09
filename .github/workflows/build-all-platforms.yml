@@ -8,7 +8,7 @@ on:
         required: true
         default: "1.3"
       source_ref:
-        description: "Build source branch/tag/SHA (e.g. codex/feature-x, develop, v1.3.1)"
+        description: "Build source branch/tag/SHA (exact: codex/feature-x, develop, v1.3.1; shorthand: codex if only one codex/* exists)"
         required: false
         default: ""
   push:
@@ -34,18 +34,35 @@ jobs:
             exit 0
           }
 
-          Write-Host "source_ref deneniyor: $ref"
-          git fetch --tags --force origin
+          git fetch --prune --tags origin "+refs/heads/*:refs/remotes/origin/*"
 
-          $headOk = (git ls-remote --heads origin $ref)
-          $tagOk = (git ls-remote --tags origin $ref)
+          $headOk = git ls-remote --exit-code --heads origin "$ref" 2>$null
+          $tagOk = git ls-remote --exit-code --tags origin "$ref" 2>$null
+          $target = $null
 
-          if ($headOk -or $tagOk) {
-            git checkout --force $ref
-            Write-Host "Checkout başarılı: $ref"
-          } else {
-            Write-Warning "source_ref '$ref' bulunamadı. Workflow tetikleyen commit/ref ile devam ediliyor."
+          if ($LASTEXITCODE -eq 0 -and $tagOk) {
+            $target = $ref
           }
+          if ($headOk) {
+            $target = $ref
+          }
+
+          if (-not $target) {
+            $matches = @(git for-each-ref --format='%(refname:short)' "refs/remotes/origin/$ref/*")
+            if ($matches.Count -eq 1) {
+              $target = ($matches[0] -replace '^origin/', '')
+              Write-Host "Shorthand source_ref çözüldü: $ref -> $target"
+            } elseif ($matches.Count -gt 1) {
+              Write-Error "source_ref '$ref' birden fazla branch ile eşleşiyor: $($matches -join ', '). Lütfen tam branch adı girin."
+              exit 1
+            } else {
+              Write-Error "source_ref '$ref' bulunamadı. Lütfen tam branch/tag/SHA girin (örn: codex/analyze-and-fix-integr...)."
+              exit 1
+            }
+          }
+
+          git checkout --force "$target"
+          Write-Host "Checkout başarılı: $target"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -95,15 +112,27 @@ jobs:
             exit 0
           fi
 
-          echo "source_ref deneniyor: $REF"
-          git fetch --tags --force origin
+          git fetch --prune --tags origin "+refs/heads/*:refs/remotes/origin/*"
 
+          TARGET=""
           if git ls-remote --exit-code --heads origin "$REF" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "$REF" >/dev/null 2>&1; then
-            git checkout --force "$REF"
-            echo "Checkout başarılı: $REF"
+            TARGET="$REF"
           else
-            echo "::warning::source_ref '$REF' bulunamadı. Workflow tetikleyen commit/ref ile devam ediliyor."
+            mapfile -t MATCHES < <(git for-each-ref --format='%(refname:short)' "refs/remotes/origin/$REF/*")
+            if [ "${#MATCHES[@]}" -eq 1 ]; then
+              TARGET="${MATCHES[0]#origin/}"
+              echo "Shorthand source_ref çözüldü: $REF -> $TARGET"
+            elif [ "${#MATCHES[@]}" -gt 1 ]; then
+              echo "::error::source_ref '$REF' birden fazla branch ile eşleşiyor: ${MATCHES[*]}. Lütfen tam branch adı girin."
+              exit 1
+            else
+              echo "::error::source_ref '$REF' bulunamadı. Lütfen tam branch/tag/SHA girin (örn: codex/analyze-and-fix-integr...)."
+              exit 1
+            fi
           fi
+
+          git checkout --force "$TARGET"
+          echo "Checkout başarılı: $TARGET"
 
       - name: Setup Python
         uses: actions/setup-python@v5
