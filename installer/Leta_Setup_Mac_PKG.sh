@@ -36,12 +36,13 @@ if ! command -v productbuild >/dev/null 2>&1; then
   exit 1
 fi
 
-# PyInstaller build kontrolü
-if [ ! -f "dist/${APP_NAME}.app/Contents/MacOS/${APP_NAME}" ]; then
-  echo "⚠️  UYARI: ${APP_NAME}.app bulunamadı!"
-  echo "📦 Önce PyInstaller build alınmalı:"
-  echo "   pyinstaller --noconfirm --clean Leta_Pipeline_Final.spec"
-  echo ""
+# PyInstaller build kontrolü (.app macOS'ta Leta_Pipeline_Mac.spec ile oluşturulur)
+if [ ! -d "dist/${APP_NAME}.app" ]; then
+  echo "❌ HATA: dist/${APP_NAME}.app bulunamadı!"
+  echo "📦 macOS için önce: pyinstaller --noconfirm --clean Leta_Pipeline_Mac.spec"
+  if [ -n "${GITHUB_ACTIONS:-}" ] || [ -n "${CI:-}" ]; then
+    exit 1
+  fi
   read -p "Devam etmek istiyor musunuz? (y/n) " -n 1 -r
   echo
   if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -66,10 +67,13 @@ else
   exit 1
 fi
 
-# Kullanım kılavuzunu ekle
-if [ -f "KULLANIM_KILAVUZU.txt" ]; then
+# Kullanım kılavuzunu ekle (script/assets veya repo kökü)
+KILAVUZU=""
+if [ -f "script/assets/KULLANIM_KILAVUZU.txt" ]; then KILAVUZU="script/assets/KULLANIM_KILAVUZU.txt"; fi
+if [ -z "$KILAVUZU" ] && [ -f "KULLANIM_KILAVUZU.txt" ]; then KILAVUZU="KULLANIM_KILAVUZU.txt"; fi
+if [ -n "$KILAVUZU" ]; then
   mkdir -p "${STAGE_DIR}/Applications/${APP_NAME}.app/Contents/Resources"
-  cp "KULLANIM_KILAVUZU.txt" "${STAGE_DIR}/Applications/${APP_NAME}.app/Contents/Resources/"
+  cp "$KILAVUZU" "${STAGE_DIR}/Applications/${APP_NAME}.app/Contents/Resources/"
   echo "✅ Kullanım kılavuzu eklendi"
 fi
 
@@ -98,6 +102,7 @@ echo "✅ Component PKG oluşturuldu: ${PKG_COMPONENT}"
 
 # Distribution XML oluştur
 DIST_XML="dist/${APP_NAME}_${VERSION}_distribution.xml"
+# CI'da welcome/license/conclusion dosyaları yok; sadece temel PKG
 cat > "${DIST_XML}" <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="1">
@@ -105,11 +110,6 @@ cat > "${DIST_XML}" <<EOF
     <organization>com.leta</organization>
     <domains enable_localSystem="true"/>
     <options customize="never" require-scripts="false" rootVolumeOnly="true"/>
-    <welcome file="welcome.html" mime-type="text/html"/>
-    <license file="license.html" mime-type="text/html"/>
-    <conclusion file="conclusion.html" mime-type="text/html"/>
-    <pkg-ref id="${IDENTIFIER}"/>
-    <options customize="never" require-scripts="false"/>
     <choices-outline>
         <line choice="default">
             <line choice="${IDENTIFIER}"/>
@@ -125,10 +125,6 @@ EOF
 
 # Final PKG oluştur
 echo "🔨 Final PKG oluşturuluyor..."
-productbuild \
-  --distribution "${DIST_XML}" \
-  --package-path "dist" \
-  --resources "${SCRIPT_DIR}/macos_resources" 2>/dev/null || \
 productbuild \
   --distribution "${DIST_XML}" \
   --package-path "dist" \

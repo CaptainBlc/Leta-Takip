@@ -1,55 +1,39 @@
-TAŞINMASI GEREKEN DOSYALAR LİSTESİ
-=====================================
+TAŞINMASI GEREKEN DOSYALAR LİSTESİ (Güncel: script/ sistemi)
+=============================================================
 
 ✅ ZORUNLU DOSYALAR:
 --------------------
-leta_app.py
-Leta_Pipeline_Final.spec
+script/                     (Ana uygulama - güncel sistem)
+  ├── main.py                (Giriş noktası)
+  ├── app_ui.py
+  ├── pipeline.py
+  ├── assets/
+  │   └── KULLANIM_KILAVUZU.txt
+  └── core/
+      ├── __init__.py
+      ├── db.py, paths.py, backup.py, migration.py
+      ├── security.py, pricing.py, money.py, env.py
+      ├── platform.py, window.py, icons.py
+      └── ui_utils.py, logging_utils.py
+
+Leta_Pipeline_Final.spec    (Build: script/main.py kullanır)
 requirements.txt
-KULLANIM_KILAVUZU.txt
+requirements-dev.txt        (opsiyonel)
 
 ✅ ZORUNLU KLASÖRLER:
 ---------------------
 veriler/                    (Tüm Excel ve DOCX dosyaları)
-  ├── LETA SEANS.xlsx
-  ├── ÖĞRENCİ AİLE NUMARALARI.docx
-  ├── ÖĞRENCİ LİSTESİ.docx
-  ├── PERVİN HOCA HAFTALIK.xlsx
-  ├── SEANS ÜCRET TAKİP.xlsx
-  └── Şifreler.docx
+installer/                  (Setup dosyaları)
+scripts/                    (Build scriptleri)
 
-installer/                  (Setup dosyaları - opsiyonel ama önerilir)
-  ├── Leta_Setup_v1_0.iss
-  ├── Leta_Setup_Windows.iss
-  └── README_SETUP.md
+TAŞINMAMASI / ARŞİV:
+---------------------
+archive/                    (Eski monolit - artık kullanılmıyor)
+  └── leta_app_legacy.py    (Referans için saklanır)
+❌ build/, dist/, __pycache__/
 
-scripts/                    (Build scriptleri - opsiyonel)
-  └── build_setup.ps1
-
-BeniOku dosyaları/          (Dokümantasyon - opsiyonel ama önerilir)
-
-TAŞINMAMASI GEREKEN DOSYALAR:
------------------------------
-❌ build/                   (Otomatik oluşur)
-❌ dist/                    (Yeniden build alınabilir)
-❌ __pycache__/             (Otomatik oluşur)
-❌ *.pyc                    (Otomatik oluşur)
-❌ leta_modules/            (Artık kullanılmıyor - kod leta_app.py içinde)
-
-HIZLI TAŞIMA İÇİN:
-------------------
-1. Tüm proje klasörünü ZIP'le
-2. Yeni PC'ye kopyala
-3. ZIP'i aç
-4. build/, dist/, __pycache__/ klasörlerini sil (opsiyonel)
-5. leta_modules/ klasörünü sil (artık gerekli değil)
-
-VERİTABANI TAŞIMA (OPSİYONEL):
--------------------------------
-Eski PC'de:
-  Windows: %LOCALAPPDATA%\LetaYonetim\leta_data.db
-  macOS: ~/Library/Application Support/LetaYonetim/leta_data.db
-  Linux: ~/.local/share/LetaYonetim/leta_data.db
-
-Yeni PC'de aynı konuma kopyala veya portable mod kullan.
-
+ÇALIŞTIRMA:
+-----------
+Geliştirme:  script dizininden  python main.py
+             veya repo kökünden  python script/main.py
+Build:       pyinstaller --noconfirm --clean Leta_Pipeline_Final.spec

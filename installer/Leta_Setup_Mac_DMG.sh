@@ -31,12 +31,13 @@ if ! command -v hdiutil >/dev/null 2>&1; then
   exit 1
 fi
 
-# PyInstaller build kontrolü
-if [ ! -f "dist/${APP_NAME}.app/Contents/MacOS/${APP_NAME}" ]; then
-  echo "⚠️  UYARI: ${APP_NAME}.app bulunamadı!"
-  echo "📦 Önce PyInstaller build alınmalı:"
-  echo "   pyinstaller --noconfirm --clean Leta_Pipeline_Final.spec"
-  echo ""
+# PyInstaller build kontrolü (.app macOS'ta Leta_Pipeline_Mac.spec ile oluşturulur)
+if [ ! -d "dist/${APP_NAME}.app" ]; then
+  echo "❌ HATA: dist/${APP_NAME}.app bulunamadı!"
+  echo "📦 macOS için önce: pyinstaller --noconfirm --clean Leta_Pipeline_Mac.spec"
+  if [ -n "${GITHUB_ACTIONS:-}" ] || [ -n "${CI:-}" ]; then
+    exit 1
+  fi
   read -p "Devam etmek istiyor musunuz? (y/n) " -n 1 -r
   echo
   if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -61,8 +62,11 @@ else
   exit 1
 fi
 
-# Kullanım kılavuzunu ekle
-if [ -f "KULLANIM_KILAVUZU.txt" ]; then
+# Kullanım kılavuzunu ekle (script/assets veya repo kökü)
+if [ -f "script/assets/KULLANIM_KILAVUZU.txt" ]; then
+  cp "script/assets/KULLANIM_KILAVUZU.txt" "${STAGE_DIR}/"
+  echo "✅ Kullanım kılavuzu eklendi"
+elif [ -f "KULLANIM_KILAVUZU.txt" ]; then
   cp "KULLANIM_KILAVUZU.txt" "${STAGE_DIR}/"
   echo "✅ Kullanım kılavuzu eklendi"
 fi

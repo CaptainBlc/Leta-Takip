@@ -13,8 +13,9 @@ OutputDir=..\dist
 OutputBaseFilename=Leta_Takip_Setup_v1_3
 WizardStyle=modern
 UninstallDisplayIcon={app}\Leta_Pipeline_v1_3.exe
-LicenseFile=..\KULLANIM_KILAVUZU.txt
-InfoBeforeFile=..\KULLANIM_KILAVUZU.txt
+; Kılavuz: script/assets veya repo kökü (CI'da script/assets kullanılır)
+LicenseFile=..\script\assets\KULLANIM_KILAVUZU.txt
+InfoBeforeFile=..\script\assets\KULLANIM_KILAVUZU.txt
 
 [Languages]
 Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"
@@ -27,7 +28,7 @@ Name: "openguide"; Description: "Kurulum bitince kullanım kılavuzunu aç"; Gro
 
 [Files]
 Source: "..\dist\Leta_Pipeline_v1_3.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\KULLANIM_KILAVUZU.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\script\assets\KULLANIM_KILAVUZU.txt"; DestDir: "{app}"; DestName: "KULLANIM_KILAVUZU.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Leta Takip"; Filename: "{app}\Leta_Pipeline_v1_3.exe"

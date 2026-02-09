@@ -2,36 +2,44 @@
 # -*- coding: utf-8 -*-
 """
 Leta Takip - Kritik fonksiyonların testi (build öncesi).
-GUI açmadan: DB başlatma, tablolar, PDF callback'leri test edilir.
-Çalıştırma: python scripts/test_leta_fonksiyonlar.py
+Güncel sistem: script/ (core + app_ui). GUI açmadan: DB, tablolar, PDF callback test edilir.
+Çalıştırma: script dizininden: python test_leta_fonksiyonlar.py
+           veya repo kökünden: python script/test_leta_fonksiyonlar.py
 """
 import os
 import sys
 import tempfile
 import shutil
 
-# Test için geçici veri dizini kullan (gerçek veriyi bozmayalım)
+# Test için geçici veri dizini (LETA_TEST_DATA_DIR core/paths.py tarafından okunur)
 TEST_DATA_DIR = tempfile.mkdtemp(prefix="leta_test_")
 os.environ["LETA_TEST_DATA_DIR"] = TEST_DATA_DIR
 
-# data_dir'i test dizinine yönlendir (leta_app import edilmeden önce patch)
-repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, repo_root)
-os.chdir(repo_root)
+# script/ dizinini path'e ekle ve oraya geç (core, app_ui import için)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+repo_root = os.path.dirname(script_dir)
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
+os.chdir(script_dir)
 
-# leta_app'i import etmeden önce patch: data_dir test dizinini dönsün
-import leta_app
-_original_data_dir = leta_app.data_dir
-def _test_data_dir():
-    return TEST_DATA_DIR
-leta_app.data_dir = _test_data_dir
+from core import (
+    init_db,
+    connect_db,
+    data_dir,
+    db_path,
+    backups_dir,
+    error_log_path,
+    app_dir,
+)
+from core.security import hash_pass
+
 
 def run_tests():
     errors = []
     # --- 1) Veritabanı başlatma ve tablolar ---
     try:
-        leta_app.init_db()
-        conn = leta_app.connect_db()
+        init_db()
+        conn = connect_db()
         cur = conn.cursor()
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
         tables = [r[0] for r in cur.fetchall()]
@@ -48,11 +56,12 @@ def run_tests():
 
     # --- 2) PDF callback'leri (header/footer) ---
     try:
-        if not leta_app.PDF_AVAILABLE:
+        from app_ui import PDF_AVAILABLE, _pdf_page_canvas_callbacks
+        if not PDF_AVAILABLE:
             print("[SKIP] PDF (reportlab yok)")
         else:
             from reportlab.lib.units import cm
-            on_first, on_later = leta_app._pdf_page_canvas_callbacks("Test Formu")
+            on_first, on_later = _pdf_page_canvas_callbacks("Test Formu")
             if on_first is None or on_later is None:
                 errors.append("PDF callbacks None döndü")
             else:
@@ -74,12 +83,11 @@ def run_tests():
 
     # --- 3) Çocuk takip formu INSERT sütun sayısı (70 sütun) ---
     try:
-        conn = leta_app.connect_db()
+        conn = connect_db()
         cur = conn.cursor()
         cur.execute("PRAGMA table_info(cocuk_takip_bilgi_formlari)")
         cols = cur.fetchall()
         conn.close()
-        # id hariç 70+ sütun bekleniyor (tablo tanımına göre)
         n_cols = len(cols)
         if n_cols < 70:
             errors.append(f"cocuk_takip_bilgi_formlari sütun sayısı: {n_cols}")
@@ -91,10 +99,10 @@ def run_tests():
 
     # --- 4) ONAM / BEP tabloları ---
     try:
-        conn = leta_app.connect_db()
+        conn = connect_db()
         cur = conn.cursor()
         for table in ["onam_formlari", "users", "danisanlar"]:
-            cur.execute(f"SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,))
+            cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,))
             if cur.fetchone() is None:
                 errors.append(f"Tablo yok: {table}")
         conn.close()
@@ -106,9 +114,9 @@ def run_tests():
 
     # --- 5) hash_pass / db_path ---
     try:
-        h = leta_app.hash_pass("test123")
-        p = leta_app.db_path()
-        if not h or not p or "leta_data.db" not in p:
+        h = hash_pass("test123")
+        p = db_path()
+        if not h or not p or "leta_data.db" not in str(p):
             errors.append("hash_pass veya db_path")
         else:
             print("[OK] hash_pass, db_path")
@@ -118,10 +126,10 @@ def run_tests():
 
     # --- 6) Yardımcı yollar (backups_dir, error_log_path, app_dir) ---
     try:
-        bd = leta_app.backups_dir()
-        el = leta_app.error_log_path()
-        ad = leta_app.app_dir()
-        if not bd or not el or not ad or not os.path.isabs(bd):
+        bd = backups_dir()
+        el = error_log_path()
+        ad = app_dir()
+        if not bd or not el or not ad or not os.path.isabs(str(bd)):
             errors.append("backups_dir/error_log_path/app_dir")
         else:
             print("[OK] backups_dir, error_log_path, app_dir")
@@ -131,7 +139,6 @@ def run_tests():
 
     # --- 7) Çocuk takip INSERT 70 sütun (vals kesme) ---
     try:
-        # Simüle: 74 değer olsa bile 70'e kesilip gönderilmeli
         vlist = list(range(74))
         vlist = vlist[:70]
         while len(vlist) < 70:
@@ -147,8 +154,9 @@ def run_tests():
 
     return errors
 
+
 if __name__ == "__main__":
-    print("Leta Takip - Fonksiyon testleri (geçici dizin:", TEST_DATA_DIR, ")")
+    print("Leta Takip - Fonksiyon testleri (script/, geçici dizin:", TEST_DATA_DIR, ")")
     print("-" * 50)
     errs = run_tests()
     try:

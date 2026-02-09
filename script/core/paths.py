@@ -43,6 +43,11 @@ def db_path(filename: str = "leta_data.db") -> Path:
 
 
 def assets_dir() -> Path:
+    # PyInstaller frozen: bundle içindeki assets
+    if getattr(sys, "frozen", False) and getattr(sys, "_MEIPASS", None):
+        p = Path(sys._MEIPASS) / "assets"
+        if p.exists():
+            return p
     # Öncelik: script/assets (repo düzeni), sonra app/assets
     candidates = [
         app_dir() / "script" / "assets",
