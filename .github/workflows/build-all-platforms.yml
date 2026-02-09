@@ -118,12 +118,14 @@ jobs:
           if git ls-remote --exit-code --heads origin "$REF" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "$REF" >/dev/null 2>&1; then
             TARGET="$REF"
           else
-            mapfile -t MATCHES < <(git for-each-ref --format='%(refname:short)' "refs/remotes/origin/$REF/*")
-            if [ "${#MATCHES[@]}" -eq 1 ]; then
-              TARGET="${MATCHES[0]#origin/}"
+            MATCHES_RAW="$(git for-each-ref --format='%(refname:short)' "refs/remotes/origin/$REF/*")"
+            MATCH_COUNT=$(printf '%s\n' "$MATCHES_RAW" | sed '/^$/d' | wc -l | tr -d ' ')
+            if [ "$MATCH_COUNT" -eq 1 ]; then
+              TARGET="$(printf '%s\n' "$MATCHES_RAW" | sed '/^$/d' | head -n1)"
+              TARGET="${TARGET#origin/}"
               echo "Shorthand source_ref çözüldü: $REF -> $TARGET"
-            elif [ "${#MATCHES[@]}" -gt 1 ]; then
-              echo "::error::source_ref '$REF' birden fazla branch ile eşleşiyor: ${MATCHES[*]}. Lütfen tam branch adı girin."
+            elif [ "$MATCH_COUNT" -gt 1 ]; then
+              echo "::error::source_ref '$REF' birden fazla branch ile eşleşiyor: $(printf '%s' "$MATCHES_RAW" | tr '\n' ' '). Lütfen tam branch adı girin."
               exit 1
             else
               echo "::error::source_ref '$REF' bulunamadı. Lütfen tam branch/tag/SHA girin (örn: codex/analyze-and-fix-integr...)."
