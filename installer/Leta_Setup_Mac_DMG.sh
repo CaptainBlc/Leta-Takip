@@ -103,9 +103,9 @@ if command -v hdiutil >/dev/null 2>&1; then
   echo "🔧 DMG optimize ediliyor..."
   hdiutil convert "dist/${DMG_NAME}" \
     -format UDZO \
-    -o "dist/${DMG_NAME}.tmp" \
+    -o "dist/${DMG_NAME}.tmp.dmg" \
     -imagekey zlib-level=9
-  mv "dist/${DMG_NAME}.tmp" "dist/${DMG_NAME}"
+  mv "dist/${DMG_NAME}.tmp.dmg" "dist/${DMG_NAME}"
 fi
 
 # Temizlik
