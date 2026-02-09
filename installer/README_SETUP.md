@@ -1,147 +1,133 @@
-# Leta Takip - Setup Dosyaları
+# Leta Takip - Güncel Build ve Kurulum Rehberi
 
-Bu klasör Windows ve macOS için kurulum dosyalarını içerir.
-
-## 📦 Windows Setup (Inno Setup)
-
-### Gereksinimler
-- [Inno Setup](https://jrsoftware.org/isdl.php) (ücretsiz)
-- Windows işletim sistemi
-- `dist/Leta_Pipeline_v1_3.exe` dosyası (PyInstaller build)
-
-### Kullanım
-
-1. **Inno Setup'ı yükleyin:**
-   - https://jrsoftware.org/isdl.php adresinden indirin
-   - Kurulum sırasında "Inno Setup Preprocessor" seçeneğini işaretleyin
-
-2. **Setup dosyasını derleyin:**
-   - `Leta_Setup_Windows.iss` dosyasını Inno Setup ile açın
-   - `Build > Compile` menüsünden derleyin
-   - Veya komut satırından:
-     ```powershell
-     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" Leta_Setup_Windows.iss
-     ```
-
-3. **Çıktı:**
-   - `../dist/Leta_Takip_Setup_v1_3.exe` dosyası oluşturulur
-
-### Özellikler
-- ✅ Modern kurulum sihirbazı
-- ✅ Türkçe dil desteği
-- ✅ Masaüstü kısayolu (opsiyonel)
-- ✅ Başlangıç menüsü kısayolu
-- ✅ Kullanım kılavuzu dahil
-- ✅ Otomatik kaldırma desteği
+Bu doküman **güncel koddan** Windows ve macOS build alma akışını anlatır.
 
 ---
 
-## 🍎 macOS Setup (PKG & DMG)
+## 1) Hızlı Özet (En Güvenli Yol)
 
-### Gereksinimler
-- macOS işletim sistemi
-- Xcode Command Line Tools
-- `dist/Leta_Pipeline_v1_3.app` dosyası (PyInstaller build)
+### Windows (lokal)
+```powershell
+# Repo kökünde
+.\scripts\build_setup.ps1 -Version 1.3
+```
 
-### PKG Installer
+### macOS (lokal)
+```bash
+# Repo kökünde
+bash scripts/build_macos.sh 1.3
+bash scripts/build_macos_dmg.sh 1.3
+bash scripts/build_macos_pkg.sh 1.3
+```
 
-1. **Script'i çalıştırılabilir yapın:**
-   ```bash
-   chmod +x installer/Leta_Setup_Mac_PKG.sh
-   ```
-
-2. **PKG oluşturun:**
-   ```bash
-   cd Leta-Takip-main
-   ./installer/Leta_Setup_Mac_PKG.sh 1.3
-   ```
-
-3. **Çıktı:**
-   - `dist/Leta_Pipeline_v1_3_1.3.pkg` dosyası oluşturulur
-
-### DMG Installer
-
-1. **Script'i çalıştırılabilir yapın:**
-   ```bash
-   chmod +x installer/Leta_Setup_Mac_DMG.sh
-   ```
-
-2. **DMG oluşturun:**
-   ```bash
-   cd Leta-Takip-main
-   ./installer/Leta_Setup_Mac_DMG.sh 1.3
-   ```
-
-3. **Çıktı:**
-   - `dist/Leta_Takip_1.3.dmg` dosyası oluşturulur
-
-### Özellikler
-
-**PKG:**
-- ✅ Standart macOS kurulum deneyimi
-- ✅ Applications klasörüne otomatik kurulum
-- ✅ Kullanım kılavuzu dahil
-
-**DMG:**
-- ✅ Drag & drop kurulum
-- ✅ Applications linki dahil
-- ✅ Kullanıcı dostu arayüz
+### Her iki platformu tek yerden (GitHub Actions)
+```powershell
+# Windows'tan tetikleme (gh yüklü ise)
+.\scripts\build_all_auto.ps1 -Version 1.3
+```
 
 ---
 
-## 🔧 Build Sırası
+## 2) Ön Gereksinimler
 
-1. **PyInstaller ile executable oluştur:**
-   ```bash
-   # Windows
-   pyinstaller --noconfirm --clean Leta_Pipeline_Final.spec
-   
-   # macOS
-   pyinstaller --noconfirm --clean Leta_Pipeline_Final.spec
-   ```
+## Windows
+- Python 3.10+
+- `pip install -r requirements.txt`
+- Inno Setup 6+
+- PowerShell
 
-2. **Setup dosyasını oluştur:**
-   ```bash
-   # Windows (Inno Setup ile)
-   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\Leta_Setup_Windows.iss
-   
-   # macOS PKG
-   ./installer/Leta_Setup_Mac_PKG.sh 1.3
-   
-   # macOS DMG
-   ./installer/Leta_Setup_Mac_DMG.sh 1.3
-   ```
+## macOS
+- Python 3.10+
+- `pip install -r requirements.txt`
+- Xcode Command Line Tools (`xcode-select --install`)
+- `pkgbuild`, `productbuild`, `hdiutil` (macOS ile gelir)
 
 ---
 
-## 📝 Notlar
+## 3) Windows Build (Güncel Koddan)
 
-- Windows setup dosyası için Inno Setup 6+ önerilir
-- macOS setup dosyaları sadece macOS'ta oluşturulabilir
-- Her iki platform için de önce PyInstaller build alınmalıdır
-- Version numarası script parametresi olarak verilebilir
+Script: `scripts/build_setup.ps1`
+
+Bu script:
+1. Eski `dist/build` kalıntılarını temizler,
+2. `Leta_Pipeline_Final.spec` ile PyInstaller build alır,
+3. Inno Setup üzerinden güncel setup EXE üretir.
+
+Komut:
+```powershell
+.\scripts\build_setup.ps1 -Version 1.3
+```
+
+Beklenen çıktı:
+- `dist/Leta_Takip_Setup_v1_3.exe`
 
 ---
 
-## 🐛 Sorun Giderme
+## 4) macOS Build (Güncel Koddan)
 
-### Windows
-- **"ISCC.exe bulunamadı" hatası:** Inno Setup'ın kurulu olduğu yolu kontrol edin
-- **"EXE dosyası bulunamadı" hatası:** Önce PyInstaller build alınmalı
+Kullanılan scriptler:
+- `scripts/build_macos.sh` → `.app`
+- `scripts/build_macos_dmg.sh` → `.dmg`
+- `scripts/build_macos_pkg.sh` → `.pkg`
 
-### macOS
-- **"pkgbuild bulunamadı" hatası:** Xcode Command Line Tools yükleyin:
+Komutlar:
+```bash
+bash scripts/build_macos.sh 1.3
+bash scripts/build_macos_dmg.sh 1.3
+bash scripts/build_macos_pkg.sh 1.3
+```
+
+Beklenen çıktılar (dist altında):
+- `Leta_Pipeline_v1_3.app`
+- `Leta_Takip_1.3.dmg`
+- `Leta_Pipeline_v1_3_1.3.pkg` (isim sürüme göre değişebilir)
+
+> Not: macOS artifact üretimi yalnızca macOS üzerinde mümkündür.
+
+---
+
+## 5) CI/CD ile Windows + macOS Güncel Build
+
+Workflow dosyaları:
+- `.github/workflows/build-all-platforms.yml`
+- `.github/workflows/build-release.yml`
+
+Yöntem:
+1. Versiyon belirle (ör: `1.3`).
+2. Workflow'u manual tetikle.
+3. Build tamamlanınca artifact'leri indir.
+
+`gh` örnekleri:
+```bash
+gh workflow run build-all-platforms.yml -f version=1.3
+gh run list --workflow=build-all-platforms.yml
+gh run download <run-id>
+```
+
+---
+
+## 6) Güncel Build Aldığını Doğrulama Checklist'i
+
+- [ ] `git status` temiz (istenmeyen local değişiklik yok)
+- [ ] Build öncesi:
   ```bash
-  xcode-select --install
+  python -m compileall script/app_ui.py script/pipeline.py leta_app.py
   ```
-- **"Permission denied" hatası:** Script'i çalıştırılabilir yapın:
-  ```bash
-  chmod +x installer/*.sh
-  ```
+- [ ] Build script başarıyla bitti
+- [ ] Çıktı dosyası tarih/saati son build ile aynı
+- [ ] Uygulama açılıp kritik ekranlar test edildi (Seans, Kasa, Ücret Takibi)
 
 ---
 
-## 📞 Destek
+## 7) Sık Sorunlar
 
-Sorunlar için proje yöneticisine başvurun.
+### Windows: Inno Setup bulunamadı
+Inno Setup kurup yeniden deneyin.
+
+### macOS: pkgbuild/productbuild bulunamadı
+`xcode-select --install` çalıştırın.
+
+### Build eski koddan alınmış görünüyor
+- Build öncesi `git rev-parse --short HEAD` ile commit hash alın.
+- Build sonrası uygulama hakkında ekranı/versiyon bilgisini hash'e göre doğrulayın.
 

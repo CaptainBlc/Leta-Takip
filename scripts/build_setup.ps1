@@ -7,6 +7,9 @@ $ErrorActionPreference = "Stop"
 # Script hangi klasörden çağrılırsa çağrılsın repo root'ta çalış
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
+$versionTag = $Version.Replace(".", "_")
+$exeNameTarget = "Leta_Pipeline_v${versionTag}.exe"
+$setupNameTarget = "Leta_Takip_Setup_v${versionTag}.exe"
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Leta Takip Build & Setup (v$Version)" -ForegroundColor Cyan
@@ -16,7 +19,7 @@ Write-Host ""
 Write-Host "1) Building EXE with PyInstaller..." -ForegroundColor Yellow
 
 # EXE dosyası açıksa kapat
-$exePath = "dist\Leta_Pipeline_v1_3.exe"
+$exePath = Join-Path "dist" $exeNameTarget
 if (Test-Path $exePath) {
     Write-Host "   Mevcut EXE kontrol ediliyor..." -ForegroundColor Gray
     $processes = Get-Process | Where-Object { $_.Path -like "*Leta_Pipeline_v1_3.exe*" }
@@ -33,7 +36,7 @@ if (Test-Path $exePath) {
 $distTmp = "dist_build"
 $buildTmp = "build_build"
 $distFinal = "dist"
-$exeName = "Leta_Pipeline_v1_3.exe"
+$exeName = $exeNameTarget
 
 if (Test-Path $distTmp) { Remove-Item -Recurse -Force $distTmp -ErrorAction SilentlyContinue }
 if (Test-Path $buildTmp) { Remove-Item -Recurse -Force $buildTmp -ErrorAction SilentlyContinue }
@@ -41,10 +44,15 @@ if (Test-Path $buildTmp) { Remove-Item -Recurse -Force $buildTmp -ErrorAction Si
 Write-Host "   PyInstaller çalışıyor... (2-3 dakika sürebilir)" -ForegroundColor Gray
 pyinstaller --noconfirm --clean Leta_Pipeline_Final.spec
 
-if (-not (Test-Path (Join-Path $distFinal $exeName))) {
+$builtExe = Get-ChildItem -Path $distFinal -Filter "Leta_Pipeline_v*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if (-not $builtExe) {
   Write-Host "❌ HATA: EXE dosyası oluşturulamadı!" -ForegroundColor Red
   exit 1
 }
+if ($builtExe.Name -ne $exeNameTarget) {
+  Copy-Item $builtExe.FullName (Join-Path $distFinal $exeNameTarget) -Force
+}
+$exeName = $exeNameTarget
 
 Write-Host "✅ EXE oluşturuldu: dist\$exeName" -ForegroundColor Green
 Write-Host ""
@@ -72,10 +80,15 @@ if (-not $iscc) {
 }
 
 Write-Host "   Inno Setup ile setup dosyası oluşturuluyor..." -ForegroundColor Gray
-& $iscc "installer\Leta_Setup_Windows.iss"
+& $iscc "/DAppVersion=$Version" "installer\Leta_Setup_Windows.iss"
 
-if (Test-Path "dist\Leta_Takip_Setup_v1_3.exe") {
-  Write-Host "✅ Setup dosyası oluşturuldu: dist\Leta_Takip_Setup_v1_3.exe" -ForegroundColor Green
+$builtSetup = Get-ChildItem -Path dist -Filter "Leta_Takip_Setup_v*.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if ($builtSetup -and $builtSetup.Name -ne $setupNameTarget) {
+  Copy-Item $builtSetup.FullName (Join-Path "dist" $setupNameTarget) -Force
+}
+
+if (Test-Path (Join-Path "dist" $setupNameTarget)) {
+  Write-Host "✅ Setup dosyası oluşturuldu: dist\$setupNameTarget" -ForegroundColor Green
 } else {
   Write-Host "⚠️  Setup dosyası oluşturulamadı, ancak EXE hazır." -ForegroundColor Yellow
 }
@@ -86,7 +99,7 @@ Write-Host "✅ BUILD TAMAMLANDI!" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "Dosyalar:" -ForegroundColor Cyan
 Write-Host "   - dist\$exeName" -ForegroundColor White
-if (Test-Path (Join-Path dist "Leta_Takip_Setup_v1_3.exe")) {
-  Write-Host "   - dist\Leta_Takip_Setup_v1_3.exe" -ForegroundColor White
+if (Test-Path (Join-Path dist $setupNameTarget)) {
+  Write-Host "   - dist\$setupNameTarget" -ForegroundColor White
 }
 Write-Host ""

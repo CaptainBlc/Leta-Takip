@@ -34,7 +34,13 @@ import unicodedata
 if sys.platform == "darwin":
     os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
 
-import pandas as pd
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    pd = None
+    PANDAS_AVAILABLE = False
+
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import tkinter as tk
@@ -353,13 +359,18 @@ def configure_macos_scaling(win) -> None:
         pass
 
 def ensure_user_guide_present() -> None:
-    """Kılavuz dosyası yoksa kopyala"""
+    """Kılavuz dosyası yoksa bilinen kaynaklardan data_dir'a kopyala."""
     try:
         dst = os.path.join(data_dir(), "KULLANIM_KILAVUZU.txt")
         if os.path.exists(dst):
             return
-        for src_base in [resource_dir(), app_dir()]:
-            src = os.path.join(src_base, "KULLANIM_KILAVUZU.txt")
+        candidates = [
+            os.path.join(resource_dir(), "KULLANIM_KILAVUZU.txt"),
+            os.path.join(app_dir(), "KULLANIM_KILAVUZU.txt"),
+            os.path.join(app_dir(), "script", "assets", "KULLANIM_KILAVUZU.txt"),
+            os.path.join(app_dir(), "assets", "KULLANIM_KILAVUZU.txt"),
+        ]
+        for src in candidates:
             if os.path.exists(src):
                 try:
                     shutil.copy2(src, dst)
@@ -6451,14 +6462,14 @@ class App(ttk.Window):
         ops_row.pack(fill=X)
         
         def create_dashboard_card(parent, title, value, icon, color, subtitle=""):
-            card = ttk.Labelframe(parent, text="", padding=12, bootstyle="secondary")
+            card = ttk.Labelframe(parent, text="", padding=8, bootstyle="secondary")
             card.pack(side=LEFT, fill=BOTH, expand=True, padx=5)
             
-            ttk.Label(card, text=icon, font=("Segoe UI", 20)).pack()
-            ttk.Label(card, text=str(value), font=("Segoe UI", 16, "bold"), bootstyle=color).pack(pady=(5, 0))
-            ttk.Label(card, text=title, font=("Segoe UI", 9), foreground="gray").pack()
+            ttk.Label(card, text=icon, font=("Segoe UI", 14)).pack()
+            ttk.Label(card, text=str(value), font=("Segoe UI", 12, "bold"), bootstyle=color).pack(pady=(2, 0))
+            ttk.Label(card, text=title, font=("Segoe UI", 8), foreground="gray").pack()
             if subtitle:
-                ttk.Label(card, text=subtitle, font=("Segoe UI", 8), foreground="darkgray").pack(pady=(2, 0))
+                ttk.Label(card, text=subtitle, font=("Segoe UI", 7), foreground="darkgray").pack(pady=(1, 0))
             return card
         
         ops = dashboard_data["operasyonel"]
@@ -12294,7 +12305,7 @@ class App(ttk.Window):
         """Eskiye dönük borç (devir bakiyesi) ekler. Kurum para takibi için kayıt sisteme işlenir."""
         win = ttk.Toplevel(self)
         win.title("Eski Borç / Devir Bakiyesi Ekle")
-        center_window(win, 400, 250)
+        center_window_smart(win, 460, 320, min_w=420, min_h=300)
         
         ttk.Label(win, text="Öğrenci Seç:", font=("Segoe UI", 10, "bold")).pack(pady=5)
         values = []
@@ -12345,7 +12356,7 @@ class App(ttk.Window):
         """Toplu ödeme alma penceresi"""
         win = ttk.Toplevel(self)
         win.title("Toplu Ödeme Al")
-        center_window(win, 400, 300)
+        center_window_smart(win, 460, 360, min_w=420, min_h=330)
         
         ttk.Label(win, text="Öğrenci Seç:", font=("Segoe UI", 10, "bold")).pack(pady=5)
         
@@ -12379,7 +12390,9 @@ class App(ttk.Window):
             try:
                 conn = self.veritabani_baglan()
                 pipeline = DataPipeline(conn, self.kullanici[0] if self.kullanici else None)
-                pipeline.toplu_odeme_al(danisan, tutar, aciklama=e_aciklama.get())
+                basarili = pipeline.toplu_odeme_al(danisan, tutar, aciklama=e_aciklama.get())
+                if not basarili:
+                    raise ValueError("Toplu ödeme kaydı oluşturulamadı.")
                 messagebox.showinfo("Başarılı", f"{tutar} TL tahsilat alındı.\nKasa defterine işlendi ve bakiyeden düşüldü.")
                 win.destroy()
                 self.kayitlari_listele()

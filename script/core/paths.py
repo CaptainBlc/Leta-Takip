@@ -43,9 +43,15 @@ def db_path(filename: str = "leta_data.db") -> Path:
 
 
 def assets_dir() -> Path:
-    # script/assets veya app/assets
-    a = app_dir() / "assets"
-    return ensure_dir(a)
+    # Öncelik: script/assets (repo düzeni), sonra app/assets
+    candidates = [
+        app_dir() / "script" / "assets",
+        app_dir() / "assets",
+    ]
+    for c in candidates:
+        if c.exists():
+            return ensure_dir(c)
+    return ensure_dir(candidates[0])
 
 
 def user_guide_path() -> Path:

@@ -42,5 +42,8 @@ AppDir/
 # Archive folder (lokalde dursun, repoya gerek yok)
 ARCHIVE/
 
-# Legacy modules (artık kullanılmıyor - kod leta_app.py içinde)
+# Legacy modules (artık kullanılmıyor)
 leta_modules/
+
+# Legacy backup snapshots (repoya ekleme)
+backup_v*_legacy_*/

@@ -7,11 +7,17 @@ cd "${ROOT_DIR}"
 
 VERSION="${1:-1.3}"
 APP_NAME="Leta_Pipeline_v${VERSION//./_}"
+APP_PATH="dist/${APP_NAME}.app"
 IDENTIFIER="com.leta.takip"
 
 echo "== Leta macOS PKG (v${VERSION}) =="
 
-bash "${SCRIPT_DIR}/build_macos.sh" "${VERSION}"
+# Workflow içinde build_macos.sh daha önce çağrıldıysa yeniden build alıp dist'i temizleme.
+# Uygulama yoksa tek seferlik build al.
+if [ ! -d "${APP_PATH}" ]; then
+  echo "App bundle bulunamadı, önce macOS app build alınıyor..."
+  bash "${SCRIPT_DIR}/build_macos.sh" "${VERSION}"
+fi
 
 # Not: Bu script macOS üzerinde çalıştırılmalıdır (pkgbuild/productbuild macOS aracıdır).
 if ! command -v pkgbuild >/dev/null 2>&1; then
@@ -22,7 +28,7 @@ fi
 STAGE="dist_pkg_stage_macos"
 rm -rf "${STAGE}"
 mkdir -p "${STAGE}/Applications"
-cp -R "dist/${APP_NAME}.app" "${STAGE}/Applications/"
+cp -R "${APP_PATH}" "${STAGE}/Applications/"
 
 PKG_COMPONENT="dist/Leta_Takip_${VERSION}_component.pkg"
 PKG_FINAL="dist/Leta_Takip_${VERSION}.pkg"
@@ -40,4 +46,3 @@ productbuild \
   "${PKG_FINAL}"
 
 echo "OK -> ${PKG_FINAL}"
-

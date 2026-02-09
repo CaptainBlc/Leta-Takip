@@ -22,7 +22,7 @@ python3 -m PyInstaller \
   --onefile --windowed \
   --name "${APP_NAME}" \
   --add-data "KULLANIM_KILAVUZU.txt:." \
-  "leta_app.py"
+  "script/main.py"
 
 echo "OK -> dist/${APP_NAME}"
 

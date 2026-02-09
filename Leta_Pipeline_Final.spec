@@ -3,7 +3,7 @@
 block_cipher = None
 
 a = Analysis(
-    ['leta_app.py'],
+    ['script/main.py'],
     pathex=[],
     binaries=[],
     datas=[('KULLANIM_KILAVUZU.txt', '.')],
