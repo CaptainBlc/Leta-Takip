@@ -38,15 +38,25 @@ fi
 
 # PyInstaller build kontrolü (.app macOS'ta Leta_Pipeline_Mac.spec ile oluşturulur)
 if [ ! -d "dist/${APP_NAME}.app" ]; then
-  echo "❌ HATA: dist/${APP_NAME}.app bulunamadı!"
-  echo "📦 macOS için önce: pyinstaller --noconfirm --clean Leta_Pipeline_Mac.spec"
-  if [ -n "${GITHUB_ACTIONS:-}" ] || [ -n "${CI:-}" ]; then
-    exit 1
-  fi
-  read -p "Devam etmek istiyor musunuz? (y/n) " -n 1 -r
-  echo
-  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    exit 1
+  detected_app="$(ls -td dist/*.app 2>/dev/null | head -n 1 || true)"
+  if [ -n "${detected_app}" ]; then
+    if [ "$(ls -td dist/*.app 2>/dev/null | wc -l | tr -d ' ')" -gt 1 ]; then
+      echo "⚠️  UYARI: Birden fazla .app bulundu, en yenisi seçildi: ${detected_app}"
+    else
+      echo "⚠️  UYARI: dist/${APP_NAME}.app yerine mevcut bundle bulundu: ${detected_app}"
+    fi
+    APP_NAME="$(basename "${detected_app}" .app)"
+  else
+    echo "❌ HATA: dist/${APP_NAME}.app bulunamadı!"
+    echo "📦 macOS için önce: pyinstaller --noconfirm --clean Leta_Pipeline_Mac.spec"
+    if [ -n "${GITHUB_ACTIONS:-}" ] || [ -n "${CI:-}" ]; then
+      exit 1
+    fi
+    read -p "Devam etmek istiyor musunuz? (y/n) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+      exit 1
+    fi
   fi
 fi
 
