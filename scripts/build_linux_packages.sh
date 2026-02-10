@@ -5,9 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
-VERSION="${1:-1.0}"
-APP_NAME="leta-yonetim-paneli"
-BIN_NAME="Leta_Yonetim_Paneli_v1_0"
+VERSION="${1:-1.3}"
+APP_NAME="leta-takip"
+BIN_NAME="Leta_Pipeline_v${VERSION//./_}_linux"
 
 echo "== Leta Linux packages (.deb/.rpm) v${VERSION} =="
 
@@ -62,7 +62,7 @@ mkdir -p dist
 fpm -s dir -t deb \
   -n "${APP_NAME}" \
   -v "${VERSION}" \
-  --description "Leta Yönetim Paneli" \
+  --description "Leta Takip" \
   --license "Proprietary" \
   --maintainer "Leta" \
   -C "${STAGE}" \
@@ -71,12 +71,11 @@ fpm -s dir -t deb \
 fpm -s dir -t rpm \
   -n "${APP_NAME}" \
   -v "${VERSION}" \
-  --description "Leta Yönetim Paneli" \
+  --description "Leta Takip" \
   --license "Proprietary" \
   --maintainer "Leta" \
   -C "${STAGE}" \
   .
 
 echo "OK -> dist/ (deb/rpm çıktılarını burada göreceksin)"
-
 

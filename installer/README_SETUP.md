@@ -57,7 +57,7 @@ Bu klasör Windows ve macOS için kurulum dosyalarını içerir.
    ```
 
 3. **Çıktı:**
-   - `dist/Leta_Pipeline_v1_3_1.3.pkg` dosyası oluşturulur
+   - `dist/Leta_Takip_1.3.pkg` dosyası oluşturulur
 
 ### DMG Installer
 
@@ -97,7 +97,7 @@ Bu klasör Windows ve macOS için kurulum dosyalarını içerir.
    pyinstaller --noconfirm --clean Leta_Pipeline_Final.spec
    
    # macOS
-   pyinstaller --noconfirm --clean Leta_Pipeline_Final.spec
+   pyinstaller --noconfirm --clean Leta_Pipeline_Mac.spec
    ```
 
 2. **Setup dosyasını oluştur:**

@@ -5,8 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${ROOT_DIR}"
 
-VERSION="${1:-1.0}"
-APP_NAME="Leta_Yonetim_Paneli_v1_0"
+VERSION="${1:-1.3}"
+APP_NAME="Leta_Pipeline_v${VERSION//./_}_linux"
 ARCH="${ARCH:-x86_64}"
 
 echo "== Leta Linux AppImage (v${VERSION}) =="
@@ -25,12 +25,13 @@ cat > "${APPDIR}/AppRun" <<'EOF'
 HERE="$(dirname "$(readlink -f "$0")")"
 exec "$HERE/usr/bin/Leta_Yonetim_Paneli_v1_0" "$@"
 EOF
+sed -i "s#Leta_Yonetim_Paneli_v1_0#${APP_NAME}#g" "${APPDIR}/AppRun"
 chmod +x "${APPDIR}/AppRun"
 
 cat > "${APPDIR}/usr/share/applications/leta.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=Leta Yönetim Paneli
+Name=Leta Takip
 Exec=${APP_NAME}
 Icon=leta
 Categories=Office;
@@ -61,4 +62,3 @@ rm -f "${OUT}"
 "${TOOL}" "${APPDIR}" "${OUT}"
 
 echo "OK -> ${OUT}"
-
