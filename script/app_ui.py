@@ -2460,6 +2460,41 @@ class App(ttk.Window):
         except Exception:
             return False
 
+    def _normalize_name_key(self, value: str) -> str:
+        txt = " ".join(str(value or "").strip().split())
+        if not txt:
+            return ""
+        try:
+            txt = txt.casefold().replace("ı", "i")
+            txt = "".join(ch for ch in unicodedata.normalize("NFKD", txt) if not unicodedata.combining(ch))
+        except Exception:
+            pass
+        return txt
+
+    def _canonical_danisan_adi(self, raw_name: str) -> str:
+        """Kullanıcı girdisini danisanlar tablosundaki gerçek ad-soyad ile eşler.
+        Böylece işlemlerde OĞUZHAN/Oğuzhan gibi case farklılıkları veri kaçırmaz.
+        """
+        given = " ".join(str(raw_name or "").strip().split())
+        if not given:
+            return ""
+        key = self._normalize_name_key(given)
+        if not key:
+            return given
+        try:
+            conn = self.veritabani_baglan()
+            cur = conn.cursor()
+            cur.execute("SELECT ad_soyad FROM danisanlar")
+            rows = cur.fetchall() or []
+            conn.close()
+            for (ad_soyad,) in rows:
+                ad = " ".join(str(ad_soyad or "").strip().split())
+                if ad and self._normalize_name_key(ad) == key:
+                    return ad
+        except Exception:
+            pass
+        return given
+
     def veritabani_baglan(self) -> sqlite3.Connection:
         return connect_db()
 
@@ -2563,7 +2598,7 @@ class App(ttk.Window):
         def _akilli_varsayilanlar_ata(*args):
             """Enterprise Smart Defaults: Otomatik fiyat, oda ve çakışma kontrolü"""
             try:
-                danisan_adi = (self.cmb_danisan.get() or "").strip().upper()
+                danisan_adi = self._canonical_danisan_adi((self.cmb_danisan.get() or "").strip())
                 terapist_adi = (self.cmb_terapist.get() or "").strip()
                 
                 if danisan_adi and terapist_adi:
@@ -3174,7 +3209,7 @@ class App(ttk.Window):
         ✅ SADELEŞTİRİLMİŞ: Sadece danışan, terapist, alınan ücret ve not manuel girilir.
         Tarih seçilir; saat otomatik atanır. Seans kaydı haftalık programdan bağımsızdır.
         """
-        danisan = (self.cmb_danisan.get() or "").strip()
+        danisan = self._canonical_danisan_adi((self.cmb_danisan.get() or "").strip())
         terapist = (self.cmb_terapist.get() or "").strip()
         
         if not danisan:
@@ -9275,7 +9310,7 @@ class App(ttk.Window):
                         try:
                             tarih_raw = str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else ""
                             tarih = self._normalize_hafta_tarihi(tarih_raw) if tarih_raw else ""  # GG.AA.YYYY → YYYY-MM-DD
-                            danisan_adi = str(row.iloc[1]).strip().upper() if len(row) > 1 and pd.notna(row.iloc[1]) else ""
+                            danisan_adi = str(row.iloc[1]).strip() if len(row) > 1 and pd.notna(row.iloc[1]) else ""
                             terapist = str(row.iloc[2]).strip() if len(row) > 2 and pd.notna(row.iloc[2]) else ""
                             bedel = _safe_float(row.iloc[3]) if len(row) > 3 else 0.0   # Alınacak Ücret = hizmet bedeli
                             # Yeni şablon: Alınan Ücret = sütun 4; eski 7 sütunlu şablon: GÜNCEL = sütun 6
@@ -9287,20 +9322,22 @@ class App(ttk.Window):
                             if not tarih or not danisan_adi or not terapist:
                                 continue
                             # ✅ Tekrar önleme: aynı (tarih, danışan, terapist) zaten varsa atla
-                            danisan_norm = str(danisan_adi).strip().upper()
+                            danisan_norm = self._normalize_name_key(self._canonical_danisan_adi(danisan_adi))
                             terapist_norm = str(terapist).strip()
                             cur.execute(
-                                "SELECT id FROM records WHERE tarih = ? AND UPPER(TRIM(COALESCE(danisan_adi,''))) = ? AND TRIM(COALESCE(terapist,'')) = ? LIMIT 1",
-                                (tarih, danisan_norm, terapist_norm)
+                                "SELECT id, COALESCE(danisan_adi,'') FROM records WHERE tarih = ? AND TRIM(COALESCE(terapist,'')) = ?",
+                                (tarih, terapist_norm)
                             )
-                            if cur.fetchone():
+                            existing = cur.fetchall() or []
+                            if any(self._normalize_name_key(r[1]) == danisan_norm for r in existing):
                                 seans_tekrar_atlandi += 1
                                 continue
+                            danisan_insert = self._canonical_danisan_adi(danisan_adi)
                             pipeline = DataPipeline(conn, kullanici_id)
                             seans_id = pipeline.seans_kayit(
                                 tarih=tarih,
                                 saat="09:00",
-                                danisan_adi=danisan_norm,
+                                danisan_adi=danisan_insert,
                                 terapist=terapist_norm,
                                 hizmet_bedeli=bedel,
                                 alinan_ucret=alinan,
@@ -12152,7 +12189,7 @@ class App(ttk.Window):
             if not danisan_var_obj:
                 messagebox.showwarning("Uyarı", "Lütfen danışan seçiniz!")
                 return
-            danisan = danisan_var_obj.get().strip().upper()
+            danisan = self._canonical_danisan_adi(danisan_var_obj.get().strip())
             if not danisan:
                 messagebox.showwarning("Uyarı", "Lütfen danışan seçiniz!")
                 return
