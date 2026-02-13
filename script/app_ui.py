@@ -6,7 +6,6 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from pipeline import DataPipeline
 import sys
-import os
 import pandas as pd
 import sqlite3
 import unicodedata
@@ -16,82 +15,6 @@ from core.window import center_window, center_window_smart, maximize_window
 from core.icons import load_logo_photo, safe_iconphoto
 from core.security import hash_pass, LOGIN_USER, LOGIN_PASS
 from core import *  # şimdilik hızlı çözüm; sonra tek tek isimle temizleriz
-
-# PDF oluşturma (opsiyonel)
-try:
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import cm
-    from reportlab.lib import colors
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
-    PDF_AVAILABLE = True
-except Exception:
-    A4 = None
-    cm = None
-    colors = None
-    pdfmetrics = None
-    TTFont = None
-    PDF_AVAILABLE = False
-
-
-def _register_turkish_pdf_font() -> str:
-    if not PDF_AVAILABLE or not pdfmetrics or not TTFont:
-        return "Helvetica"
-    candidates = []
-    if sys.platform.startswith("win"):
-        candidates = [
-            ("SegoeUI", "C:/Windows/Fonts/segoeui.ttf"),
-            ("Arial", "C:/Windows/Fonts/arial.ttf"),
-        ]
-    elif sys.platform == "darwin":
-        candidates = [
-            ("Helvetica", "/System/Library/Fonts/Helvetica.ttc"),
-            ("ArialUnicodeMS", "/Library/Fonts/Arial Unicode.ttf"),
-        ]
-    else:
-        candidates = [
-            ("DejaVuSans", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-            ("LiberationSans", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
-        ]
-
-    for font_name, font_path in candidates:
-        try:
-            if os.path.exists(font_path):
-                pdfmetrics.registerFont(TTFont(font_name, font_path))
-                return font_name
-        except Exception:
-            continue
-    return "Helvetica"
-
-
-_TURKISH_PDF_FONT = _register_turkish_pdf_font()
-
-
-def _pdf_page_canvas_callbacks(form_title: str):
-    """PDF sayfalarında standart üst/alt bilgi çizer."""
-    if not PDF_AVAILABLE or not A4 or not cm or not colors:
-        return None, None
-
-    width, height = A4[0], A4[1]
-    margin = 1.5 * cm
-
-    def _draw(canvas, doc):
-        canvas.saveState()
-        canvas.setFont(_TURKISH_PDF_FONT, 9)
-        canvas.setFillColor(colors.HexColor("#666666"))
-        header_y = height - 1 * cm
-        canvas.drawString(margin, header_y, f"Leta Aile ve Çocuk — {form_title}")
-        canvas.setStrokeColor(colors.HexColor("#cccccc"))
-        canvas.setLineWidth(0.5)
-        canvas.line(margin, header_y - 0.3 * cm, width - margin, header_y - 0.3 * cm)
-
-        footer_y = 1.5 * cm
-        canvas.line(margin, footer_y + 0.4 * cm, width - margin, footer_y + 0.4 * cm)
-        canvas.drawRightString(width - margin, footer_y, f"Sayfa {canvas.getPageNumber()}")
-        canvas.restoreState()
-
-    return _draw, _draw
-
 
 class App(ttk.Window):
     def __init__(self):
