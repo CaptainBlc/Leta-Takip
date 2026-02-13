@@ -6,7 +6,6 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from pipeline import DataPipeline
 import sys
-import traceback
 import pandas as pd
 import sqlite3
 import unicodedata
@@ -651,7 +650,6 @@ class App(ttk.Window):
         self.toolbar = bar
 
         user_txt = "Kullanıcı"
-        role_txt = ""
         try:
             if self.kullanici and len(self.kullanici) >= 3:
                 user_txt = self.kullanici[2] or self.kullanici[1]
@@ -1051,7 +1049,7 @@ class App(ttk.Window):
                     if not row:
                         messagebox.showerror("Hata", "Seçtiğiniz takvim seansı bulunamadı.")
                         return
-                    tarih, saat, danisan, terapist, notlar = row[0], row[1], row[2], row[3], row[4]
+                    _, saat, _, _, _ = row[0], row[1], row[2], row[3], row[4]
                     # bağla + saat doldur
                     cur.execute("UPDATE records SET seans_id=?, saat=? WHERE id=?", (sid, saat, rid))
                     cur.execute("UPDATE seans_takvimi SET record_id=? WHERE id=?", (rid, sid))
@@ -3917,9 +3915,7 @@ class App(ttk.Window):
             return
         
         values = tree.item(sel[0])["values"]
-        seans_id = values[0]
         cocuk_adi = values[1]
-        personel_adi = values[2]
         
         # Öğrenci ID'sini bul
         try:
@@ -4261,7 +4257,6 @@ class App(ttk.Window):
         
         values = tree.item(sel[0])["values"]
         cocuk_adi = values[1]
-        personel_adi = values[2]
         
         win = ttk.Toplevel(self)
         win.title(f"Detaylı Rapor - {cocuk_adi}")
@@ -4419,7 +4414,6 @@ class App(ttk.Window):
         3) Gereksiz verileri filtreler.
         """
         import pandas as pd
-        import numpy as np
         
         conn = None
         try:
@@ -5129,14 +5123,12 @@ class App(ttk.Window):
         tree = parent._tree_gunluk
         ent_tarih = parent._ent_tarih
         cmb_cocuk = parent._cmb_cocuk
-        cmb_oda = parent._cmb_oda
         
         for iid in tree.get_children():
             tree.delete(iid)
         
         tarih_filtre = ent_tarih.get() or ""
         cocuk_filtre = cmb_cocuk.get() or ""
-        oda_filtre = ""  # oda filtresi devre dışı
         
         try:
             conn = self.veritabani_baglan()
@@ -5539,7 +5531,7 @@ class App(ttk.Window):
                 worksheet = writer.sheets['Kasa Defteri']
                 
                 # Başlık satırını kalın yap
-                from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+                from openpyxl.styles import Font, PatternFill, Alignment
                 header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
                 header_font = Font(bold=True, color="FFFFFF", size=11)
                 
@@ -6504,7 +6496,7 @@ class App(ttk.Window):
             return
         
         try:
-            ogrenci_id = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
+            _ = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
         except Exception:
             return
         
@@ -6540,7 +6532,7 @@ class App(ttk.Window):
             return
         
         try:
-            ogrenci_id = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
+            _ = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
         except Exception:
             messagebox.showerror("Hata", "Geçersiz öğrenci seçimi.")
             return
@@ -6726,7 +6718,7 @@ class App(ttk.Window):
             return
         
         try:
-            ogrenci_id = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
+            _ = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
         except Exception:
             return
         
@@ -6765,7 +6757,7 @@ class App(ttk.Window):
             return
         
         try:
-            ogrenci_id = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
+            _ = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
         except Exception:
             messagebox.showerror("Hata", "Geçersiz öğrenci seçimi.")
             return
@@ -6787,7 +6779,7 @@ class App(ttk.Window):
             return
         
         try:
-            ogrenci_id = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
+            _ = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
         except Exception:
             messagebox.showerror("Hata", "Geçersiz öğrenci seçimi.")
             return
@@ -10128,9 +10120,6 @@ class App(ttk.Window):
             except Exception:
                 row = ("", "", "", 0, "", "", 0, 0)
 
-            seans_tarih = row[0]
-            seans_dan = row[1]
-            seans_ter = row[2]
             var_seans = ttk.IntVar(value=1 if int(row[6] or 0) == 1 else 0)
             var_ucret = ttk.IntVar(value=1 if int(row[7] or 0) == 1 else 0)
 

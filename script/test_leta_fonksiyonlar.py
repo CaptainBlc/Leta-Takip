@@ -25,7 +25,6 @@ os.chdir(script_dir)
 from core import (
     init_db,
     connect_db,
-    data_dir,
     db_path,
     backups_dir,
     error_log_path,
