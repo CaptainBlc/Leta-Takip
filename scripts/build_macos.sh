@@ -15,13 +15,7 @@ python3 -m pip install -r requirements.txt -r requirements-dev.txt
 
 rm -rf dist build
 
-# macOS'ta --windowed çıktısı .app bundle üretir (onedir).
-# Kılavuz dosyasını bundle içine ekliyoruz.
-python3 -m PyInstaller \
-  --clean --noconfirm \
-  --windowed \
-  --name "${APP_NAME}" \
-  --add-data "KULLANIM_KILAVUZU.txt:." \
-  "leta_app.py"
+# Güncel akış: spec dosyası script/main.py giriş noktasını kullanır.
+python3 -m PyInstaller --noconfirm --clean Leta_Pipeline_Mac.spec
 
 echo "OK -> dist/${APP_NAME}.app"

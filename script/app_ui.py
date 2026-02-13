@@ -6,9 +6,9 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from pipeline import DataPipeline
 import sys
-import traceback
 import pandas as pd
 import sqlite3
+import unicodedata
 from core.logging_utils import log_exception
 from core.platform import configure_macos_scaling
 from core.window import center_window, center_window_smart, maximize_window
@@ -650,7 +650,6 @@ class App(ttk.Window):
         self.toolbar = bar
 
         user_txt = "Kullanıcı"
-        role_txt = ""
         try:
             if self.kullanici and len(self.kullanici) >= 3:
                 user_txt = self.kullanici[2] or self.kullanici[1]
@@ -1050,7 +1049,7 @@ class App(ttk.Window):
                     if not row:
                         messagebox.showerror("Hata", "Seçtiğiniz takvim seansı bulunamadı.")
                         return
-                    tarih, saat, danisan, terapist, notlar = row[0], row[1], row[2], row[3], row[4]
+                    _, saat, _, _, _ = row[0], row[1], row[2], row[3], row[4]
                     # bağla + saat doldur
                     cur.execute("UPDATE records SET seans_id=?, saat=? WHERE id=?", (sid, saat, rid))
                     cur.execute("UPDATE seans_takvimi SET record_id=? WHERE id=?", (rid, sid))
@@ -2461,6 +2460,41 @@ class App(ttk.Window):
         except Exception:
             return False
 
+    def _normalize_name_key(self, value: str) -> str:
+        txt = " ".join(str(value or "").strip().split())
+        if not txt:
+            return ""
+        try:
+            txt = txt.casefold().replace("ı", "i")
+            txt = "".join(ch for ch in unicodedata.normalize("NFKD", txt) if not unicodedata.combining(ch))
+        except Exception:
+            pass
+        return txt
+
+    def _canonical_danisan_adi(self, raw_name: str) -> str:
+        """Kullanıcı girdisini danisanlar tablosundaki gerçek ad-soyad ile eşler.
+        Böylece işlemlerde OĞUZHAN/Oğuzhan gibi case farklılıkları veri kaçırmaz.
+        """
+        given = " ".join(str(raw_name or "").strip().split())
+        if not given:
+            return ""
+        key = self._normalize_name_key(given)
+        if not key:
+            return given
+        try:
+            conn = self.veritabani_baglan()
+            cur = conn.cursor()
+            cur.execute("SELECT ad_soyad FROM danisanlar")
+            rows = cur.fetchall() or []
+            conn.close()
+            for (ad_soyad,) in rows:
+                ad = " ".join(str(ad_soyad or "").strip().split())
+                if ad and self._normalize_name_key(ad) == key:
+                    return ad
+        except Exception:
+            pass
+        return given
+
     def veritabani_baglan(self) -> sqlite3.Connection:
         return connect_db()
 
@@ -2564,7 +2598,7 @@ class App(ttk.Window):
         def _akilli_varsayilanlar_ata(*args):
             """Enterprise Smart Defaults: Otomatik fiyat, oda ve çakışma kontrolü"""
             try:
-                danisan_adi = (self.cmb_danisan.get() or "").strip().upper()
+                danisan_adi = self._canonical_danisan_adi((self.cmb_danisan.get() or "").strip())
                 terapist_adi = (self.cmb_terapist.get() or "").strip()
                 
                 if danisan_adi and terapist_adi:
@@ -3175,7 +3209,7 @@ class App(ttk.Window):
         ✅ SADELEŞTİRİLMİŞ: Sadece danışan, terapist, alınan ücret ve not manuel girilir.
         Tarih seçilir; saat otomatik atanır. Seans kaydı haftalık programdan bağımsızdır.
         """
-        danisan = (self.cmb_danisan.get() or "").strip()
+        danisan = self._canonical_danisan_adi((self.cmb_danisan.get() or "").strip())
         terapist = (self.cmb_terapist.get() or "").strip()
         
         if not danisan:
@@ -3916,9 +3950,7 @@ class App(ttk.Window):
             return
         
         values = tree.item(sel[0])["values"]
-        seans_id = values[0]
         cocuk_adi = values[1]
-        personel_adi = values[2]
         
         # Öğrenci ID'sini bul
         try:
@@ -4260,7 +4292,6 @@ class App(ttk.Window):
         
         values = tree.item(sel[0])["values"]
         cocuk_adi = values[1]
-        personel_adi = values[2]
         
         win = ttk.Toplevel(self)
         win.title(f"Detaylı Rapor - {cocuk_adi}")
@@ -4418,7 +4449,6 @@ class App(ttk.Window):
         3) Gereksiz verileri filtreler.
         """
         import pandas as pd
-        import numpy as np
         
         conn = None
         try:
@@ -5128,14 +5158,12 @@ class App(ttk.Window):
         tree = parent._tree_gunluk
         ent_tarih = parent._ent_tarih
         cmb_cocuk = parent._cmb_cocuk
-        cmb_oda = parent._cmb_oda
         
         for iid in tree.get_children():
             tree.delete(iid)
         
         tarih_filtre = ent_tarih.get() or ""
         cocuk_filtre = cmb_cocuk.get() or ""
-        oda_filtre = ""  # oda filtresi devre dışı
         
         try:
             conn = self.veritabani_baglan()
@@ -5538,7 +5566,7 @@ class App(ttk.Window):
                 worksheet = writer.sheets['Kasa Defteri']
                 
                 # Başlık satırını kalın yap
-                from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+                from openpyxl.styles import Font, PatternFill, Alignment
                 header_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
                 header_font = Font(bold=True, color="FFFFFF", size=11)
                 
@@ -6503,7 +6531,7 @@ class App(ttk.Window):
             return
         
         try:
-            ogrenci_id = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
+            _ = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
         except Exception:
             return
         
@@ -6539,7 +6567,7 @@ class App(ttk.Window):
             return
         
         try:
-            ogrenci_id = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
+            _ = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
         except Exception:
             messagebox.showerror("Hata", "Geçersiz öğrenci seçimi.")
             return
@@ -6725,7 +6753,7 @@ class App(ttk.Window):
             return
         
         try:
-            ogrenci_id = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
+            _ = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
         except Exception:
             return
         
@@ -6764,7 +6792,7 @@ class App(ttk.Window):
             return
         
         try:
-            ogrenci_id = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
+            _ = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
         except Exception:
             messagebox.showerror("Hata", "Geçersiz öğrenci seçimi.")
             return
@@ -6786,7 +6814,7 @@ class App(ttk.Window):
             return
         
         try:
-            ogrenci_id = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
+            _ = int(ogrenci_text.split("(ID: ")[1].split(")")[0])
         except Exception:
             messagebox.showerror("Hata", "Geçersiz öğrenci seçimi.")
             return
@@ -6848,42 +6876,66 @@ class App(ttk.Window):
         """Tüm danışanların bilgilerini listele"""
         tree = parent._tree_danisanlar
         ent_ara = parent._ent_ara_danisan
-        
+
+        def _norm_key(value: str) -> str:
+            txt = " ".join(str(value or "").strip().split())
+            if not txt:
+                return ""
+            try:
+                txt = txt.casefold().replace("ı", "i")
+                txt = "".join(ch for ch in unicodedata.normalize("NFKD", txt) if not unicodedata.combining(ch))
+            except Exception:
+                pass
+            return txt
+
         for iid in tree.get_children():
             tree.delete(iid)
-        
-        ara_metni = (ent_ara.get() or "").strip().upper()
-        
+
+        ara_metni_raw = (ent_ara.get() or "").strip()
+        ara_metni = _norm_key(ara_metni_raw)
+
         try:
             conn = self.veritabani_baglan()
             cur = conn.cursor()
-            
-            # Borç: records'tan canlı hesapla; danışan adı büyük/küçük harf farkına duyarsız eşleştir
-            subq = "(SELECT COALESCE(SUM(r.kalan_borc), 0) FROM records r WHERE UPPER(TRIM(r.danisan_adi)) = UPPER(TRIM(d.ad_soyad)))"
-            if ara_metni:
-                cur.execute(
-                    f"""
-                    SELECT d.id, d.ad_soyad, d.dogum_tarihi, d.veli_adi, d.veli_telefon, COALESCE(d.adres,''),
-                           {subq} as balance, d.aktif
-                    FROM danisanlar d
-                    WHERE UPPER(d.ad_soyad) LIKE ? OR UPPER(d.veli_adi) LIKE ? OR d.veli_telefon LIKE ?
-                    ORDER BY d.ad_soyad
-                    """,
-                    (f"%{ara_metni}%", f"%{ara_metni}%", f"%{ara_metni}%")
-                )
-            else:
-                cur.execute(
-                    f"""
-                    SELECT d.id, d.ad_soyad, d.dogum_tarihi, d.veli_adi, d.veli_telefon, COALESCE(d.adres,''),
-                           {subq} as balance, d.aktif
-                    FROM danisanlar d
-                    ORDER BY d.ad_soyad
-                    """
-                )
-            
-            rows = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT d.id, d.ad_soyad, d.dogum_tarihi, d.veli_adi, d.veli_telefon, COALESCE(d.adres,''), d.aktif
+                FROM danisanlar d
+                ORDER BY d.ad_soyad
+                """
+            )
+            danisan_rows = cur.fetchall() or []
+
+            borc_map = {}
+            try:
+                cur.execute("SELECT COALESCE(danisan_adi,''), COALESCE(kalan_borc,0) FROM records WHERE COALESCE(kalan_borc,0)>0")
+                for d_adi_raw, borc_raw in (cur.fetchall() or []):
+                    k = _norm_key(d_adi_raw)
+                    if not k:
+                        continue
+                    borc_map[k] = float(borc_map.get(k, 0.0) or 0.0) + float(borc_raw or 0.0)
+            except Exception:
+                pass
+
             conn.close()
-            
+
+            rows = []
+            for row in danisan_rows:
+                # row: id, ad_soyad, dogum_tarihi, veli_adi, veli_telefon, adres, aktif
+                norm_ad = _norm_key(row[1])
+                balance = float(borc_map.get(norm_ad, 0.0) or 0.0)
+                row2 = (row[0], row[1], row[2], row[3], row[4], row[5], balance, row[6])
+                if ara_metni:
+                    haystack = " | ".join([
+                        _norm_key(row[1]),
+                        _norm_key(row[3]),
+                        _norm_key(row[4]),
+                    ])
+                    if ara_metni not in haystack:
+                        continue
+                rows.append(row2)
+
             # row: id, ad_soyad, dogum_tarihi, veli_adi, veli_telefon, adres, balance, aktif
             for idx, row in enumerate(rows):
                 durum = "Aktif" if row[7] else "Pasif"
@@ -9258,7 +9310,7 @@ class App(ttk.Window):
                         try:
                             tarih_raw = str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else ""
                             tarih = self._normalize_hafta_tarihi(tarih_raw) if tarih_raw else ""  # GG.AA.YYYY → YYYY-MM-DD
-                            danisan_adi = str(row.iloc[1]).strip().upper() if len(row) > 1 and pd.notna(row.iloc[1]) else ""
+                            danisan_adi = str(row.iloc[1]).strip() if len(row) > 1 and pd.notna(row.iloc[1]) else ""
                             terapist = str(row.iloc[2]).strip() if len(row) > 2 and pd.notna(row.iloc[2]) else ""
                             bedel = _safe_float(row.iloc[3]) if len(row) > 3 else 0.0   # Alınacak Ücret = hizmet bedeli
                             # Yeni şablon: Alınan Ücret = sütun 4; eski 7 sütunlu şablon: GÜNCEL = sütun 6
@@ -9270,20 +9322,22 @@ class App(ttk.Window):
                             if not tarih or not danisan_adi or not terapist:
                                 continue
                             # ✅ Tekrar önleme: aynı (tarih, danışan, terapist) zaten varsa atla
-                            danisan_norm = str(danisan_adi).strip().upper()
+                            danisan_norm = self._normalize_name_key(self._canonical_danisan_adi(danisan_adi))
                             terapist_norm = str(terapist).strip()
                             cur.execute(
-                                "SELECT id FROM records WHERE tarih = ? AND UPPER(TRIM(COALESCE(danisan_adi,''))) = ? AND TRIM(COALESCE(terapist,'')) = ? LIMIT 1",
-                                (tarih, danisan_norm, terapist_norm)
+                                "SELECT id, COALESCE(danisan_adi,'') FROM records WHERE tarih = ? AND TRIM(COALESCE(terapist,'')) = ?",
+                                (tarih, terapist_norm)
                             )
-                            if cur.fetchone():
+                            existing = cur.fetchall() or []
+                            if any(self._normalize_name_key(r[1]) == danisan_norm for r in existing):
                                 seans_tekrar_atlandi += 1
                                 continue
+                            danisan_insert = self._canonical_danisan_adi(danisan_adi)
                             pipeline = DataPipeline(conn, kullanici_id)
                             seans_id = pipeline.seans_kayit(
                                 tarih=tarih,
                                 saat="09:00",
-                                danisan_adi=danisan_norm,
+                                danisan_adi=danisan_insert,
                                 terapist=terapist_norm,
                                 hizmet_bedeli=bedel,
                                 alinan_ucret=alinan,
@@ -10103,9 +10157,6 @@ class App(ttk.Window):
             except Exception:
                 row = ("", "", "", 0, "", "", 0, 0)
 
-            seans_tarih = row[0]
-            seans_dan = row[1]
-            seans_ter = row[2]
             var_seans = ttk.IntVar(value=1 if int(row[6] or 0) == 1 else 0)
             var_ucret = ttk.IntVar(value=1 if int(row[7] or 0) == 1 else 0)
 
@@ -12138,7 +12189,7 @@ class App(ttk.Window):
             if not danisan_var_obj:
                 messagebox.showwarning("Uyarı", "Lütfen danışan seçiniz!")
                 return
-            danisan = danisan_var_obj.get().strip().upper()
+            danisan = self._canonical_danisan_adi(danisan_var_obj.get().strip())
             if not danisan:
                 messagebox.showwarning("Uyarı", "Lütfen danışan seçiniz!")
                 return

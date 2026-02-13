@@ -1,7 +1,6 @@
 from __future__ import annotations
 import sys
 import traceback
-import datetime
 
 from core import *  # core package export layer
 from app_ui import App
