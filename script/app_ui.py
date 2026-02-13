@@ -9,6 +9,7 @@ import sys
 import traceback
 import pandas as pd
 import sqlite3
+import unicodedata
 from core.logging_utils import log_exception
 from core.platform import configure_macos_scaling
 from core.window import center_window, center_window_smart, maximize_window
@@ -6848,42 +6849,66 @@ class App(ttk.Window):
         """Tüm danışanların bilgilerini listele"""
         tree = parent._tree_danisanlar
         ent_ara = parent._ent_ara_danisan
-        
+
+        def _norm_key(value: str) -> str:
+            txt = " ".join(str(value or "").strip().split())
+            if not txt:
+                return ""
+            try:
+                txt = txt.casefold().replace("ı", "i")
+                txt = "".join(ch for ch in unicodedata.normalize("NFKD", txt) if not unicodedata.combining(ch))
+            except Exception:
+                pass
+            return txt
+
         for iid in tree.get_children():
             tree.delete(iid)
-        
-        ara_metni = (ent_ara.get() or "").strip().upper()
-        
+
+        ara_metni_raw = (ent_ara.get() or "").strip()
+        ara_metni = _norm_key(ara_metni_raw)
+
         try:
             conn = self.veritabani_baglan()
             cur = conn.cursor()
-            
-            # Borç: records'tan canlı hesapla; danışan adı büyük/küçük harf farkına duyarsız eşleştir
-            subq = "(SELECT COALESCE(SUM(r.kalan_borc), 0) FROM records r WHERE UPPER(TRIM(r.danisan_adi)) = UPPER(TRIM(d.ad_soyad)))"
-            if ara_metni:
-                cur.execute(
-                    f"""
-                    SELECT d.id, d.ad_soyad, d.dogum_tarihi, d.veli_adi, d.veli_telefon, COALESCE(d.adres,''),
-                           {subq} as balance, d.aktif
-                    FROM danisanlar d
-                    WHERE UPPER(d.ad_soyad) LIKE ? OR UPPER(d.veli_adi) LIKE ? OR d.veli_telefon LIKE ?
-                    ORDER BY d.ad_soyad
-                    """,
-                    (f"%{ara_metni}%", f"%{ara_metni}%", f"%{ara_metni}%")
-                )
-            else:
-                cur.execute(
-                    f"""
-                    SELECT d.id, d.ad_soyad, d.dogum_tarihi, d.veli_adi, d.veli_telefon, COALESCE(d.adres,''),
-                           {subq} as balance, d.aktif
-                    FROM danisanlar d
-                    ORDER BY d.ad_soyad
-                    """
-                )
-            
-            rows = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT d.id, d.ad_soyad, d.dogum_tarihi, d.veli_adi, d.veli_telefon, COALESCE(d.adres,''), d.aktif
+                FROM danisanlar d
+                ORDER BY d.ad_soyad
+                """
+            )
+            danisan_rows = cur.fetchall() or []
+
+            borc_map = {}
+            try:
+                cur.execute("SELECT COALESCE(danisan_adi,''), COALESCE(kalan_borc,0) FROM records WHERE COALESCE(kalan_borc,0)>0")
+                for d_adi_raw, borc_raw in (cur.fetchall() or []):
+                    k = _norm_key(d_adi_raw)
+                    if not k:
+                        continue
+                    borc_map[k] = float(borc_map.get(k, 0.0) or 0.0) + float(borc_raw or 0.0)
+            except Exception:
+                pass
+
             conn.close()
-            
+
+            rows = []
+            for row in danisan_rows:
+                # row: id, ad_soyad, dogum_tarihi, veli_adi, veli_telefon, adres, aktif
+                norm_ad = _norm_key(row[1])
+                balance = float(borc_map.get(norm_ad, 0.0) or 0.0)
+                row2 = (row[0], row[1], row[2], row[3], row[4], row[5], balance, row[6])
+                if ara_metni:
+                    haystack = " | ".join([
+                        _norm_key(row[1]),
+                        _norm_key(row[3]),
+                        _norm_key(row[4]),
+                    ])
+                    if ara_metni not in haystack:
+                        continue
+                rows.append(row2)
+
             # row: id, ad_soyad, dogum_tarihi, veli_adi, veli_telefon, adres, balance, aktif
             for idx, row in enumerate(rows):
                 durum = "Aktif" if row[7] else "Pasif"

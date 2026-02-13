@@ -929,24 +929,35 @@ class DataPipeline:
             try:
                 self.cur.execute(
                     """
-                    SELECT UPPER(TRIM(danisan_adi)) AS danisan_adi,
-                           COALESCE(SUM(COALESCE(kalan_borc,0)),0) AS kalan_borc,
-                           COUNT(*) AS acik_kayit
+                    SELECT COALESCE(danisan_adi,''), COALESCE(kalan_borc,0)
                     FROM records
                     WHERE COALESCE(kalan_borc,0) > 0
-                    GROUP BY UPPER(TRIM(danisan_adi))
-                    ORDER BY kalan_borc DESC
-                    LIMIT 10
                     """
                 )
-                out["borclular"] = [
-                    {
-                        "danisan_adi": r[0] or "",
-                        "kalan_borc": self._safe_float(r[1]),
-                        "acik_kayit": int(r[2] or 0),
-                    }
-                    for r in (self.cur.fetchall() or [])
-                ]
+                grouped = {}
+                for raw_name, raw_borc in (self.cur.fetchall() or []):
+                    display_name = " ".join(str(raw_name or "").strip().split())
+                    key = self._normalize_name(display_name)
+                    if not key:
+                        continue
+                    item = grouped.setdefault(
+                        key,
+                        {
+                            "danisan_adi": display_name,
+                            "kalan_borc": 0.0,
+                            "acik_kayit": 0,
+                        },
+                    )
+                    if display_name and (not item["danisan_adi"] or len(display_name) > len(item["danisan_adi"])):
+                        item["danisan_adi"] = display_name
+                    item["kalan_borc"] += self._safe_float(raw_borc)
+                    item["acik_kayit"] += 1
+
+                out["borclular"] = sorted(
+                    grouped.values(),
+                    key=lambda x: x.get("kalan_borc", 0.0),
+                    reverse=True,
+                )[:200]
             except Exception as e:
                 log_exception("get_dashboard_data_borclular", e)
 
