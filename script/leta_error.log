@@ -1,0 +1,126 @@
+
+--- GLOBAL EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\main.py", line 51, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\main.py", line 31, in main
+    app = App()
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\app_ui.py", line 26, in __init__
+    self.report_callback_exception = _tk_report_callback_exception.__get__(self, App)
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+NameError: name '_tk_report_callback_exception' is not defined. Did you mean: 'self._tk_report_callback_exception'?
+
+--- TK CALLBACK TRACEBACK ---
+  File "C:\Users\Pc\AppData\Local\Programs\Python\Python313\Lib\tkinter\__init__.py", line 2074, in __call__
+    return self.func(*args)
+           ~~~~~~~~~^^^^^^^
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\app_ui.py", line 1484, in toplam_rapor_pencere
+    self._rapor_pencere("0001-01-01", "9999-12-31", title="Toplam Rapor (Genel)")
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\app_ui.py", line 1642, in _rapor_pencere
+    df_cache = {"df": _load()}
+                      ~~~~~^^
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\app_ui.py", line 1616, in _load
+    df = pd.DataFrame(columns=["tarih", "saat", "danisan_adi", "terapist", "seans_ucreti", "alinan_odeme", "kalan_borc", "notlar"])
+         ^^
+name 'pd' is not defined
+
+--- TK CALLBACK TRACEBACK ---
+  File "C:\Users\Pc\AppData\Local\Programs\Python\Python313\Lib\tkinter\__init__.py", line 2074, in __call__
+    return self.func(*args)
+           ~~~~~~~~~^^^^^^^
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\app_ui.py", line 1343, in haftalik_rapor_pencere
+    self._rapor_pencere(bas.strftime("%Y-%m-%d"), bit.strftime("%Y-%m-%d"), title="Haftalık Rapor")
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\app_ui.py", line 1642, in _rapor_pencere
+    df_cache = {"df": _load()}
+                      ~~~~~^^
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\app_ui.py", line 1616, in _load
+    df = pd.DataFrame(columns=["tarih", "saat", "danisan_adi", "terapist", "seans_ucreti", "alinan_odeme", "kalan_borc", "notlar"])
+         ^^
+name 'pd' is not defined
+
+--- GLOBAL EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\main.py", line 51, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\main.py", line 31, in main
+    app = App()
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\app_ui.py", line 41, in __init__
+    self._vcmd_money = (self.register(self._validate_money), "%P")
+                                      ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Pc\AppData\Local\Programs\Python\Python313\Lib\tkinter\__init__.py", line 2552, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_validate_money'
+
+--- GLOBAL EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\main.py", line 51, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\main.py", line 31, in main
+    app = App()
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\app_ui.py", line 41, in __init__
+    self._vcmd_money = (self.register(self._validate_money), "%P")
+                                      ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Pc\AppData\Local\Programs\Python\Python313\Lib\tkinter\__init__.py", line 2552, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_validate_money'
+
+--- GLOBAL EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\main.py", line 51, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\main.py", line 31, in main
+    app = App()
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\app_ui.py", line 41, in __init__
+    self._vcmd_money = (self.register(self._validate_money), "%P")
+                                      ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Pc\AppData\Local\Programs\Python\Python313\Lib\tkinter\__init__.py", line 2552, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_validate_money'
+
+--- GLOBAL EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\main.py", line 51, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\main.py", line 31, in main
+    app = App()
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\app_ui.py", line 41, in __init__
+    self._vcmd_money = (self.register(self._validate_money), "%P")
+                                      ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Pc\AppData\Local\Programs\Python\Python313\Lib\tkinter\__init__.py", line 2552, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_validate_money'
+
+--- GLOBAL EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\main.py", line 51, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\main.py", line 31, in main
+    app = App()
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\app_ui.py", line 27, in __init__
+    self.report_callback_exception = self._tk_report_callback_exception
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Pc\AppData\Local\Programs\Python\Python313\Lib\tkinter\__init__.py", line 2552, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_tk_report_callback_exception'
+
+--- GLOBAL EXCEPTION ---
+Traceback (most recent call last):
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\main.py", line 51, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\main.py", line 31, in main
+    app = App()
+  File "C:\Users\Pc\Desktop\Leta_Takip\Leta-Takip\script\app_ui.py", line 27, in __init__
+    self.report_callback_exception = self._tk_report_callback_exception
+                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Pc\AppData\Local\Programs\Python\Python313\Lib\tkinter\__init__.py", line 2552, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_tk_report_callback_exception'

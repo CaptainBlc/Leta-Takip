@@ -141,7 +141,6 @@ Sorunlar için lütfen geliştirici ile iletişime geçin.
 
 - Detaylı dağıtım notları: `BeniOku dosyaları/README_DAGITIM.md`
 
-<<<<<<< HEAD
 ## 📚 Dokümantasyon
 
 ### Kullanıcı İçin
@@ -168,12 +167,3 @@ Leta Takip artık **Event-Driven Architecture** ile çalışıyor!
 3. **SILME:** Cascade silme (tüm bağlı tablolar)
 
 **Detaylı bilgi:** `BeniOku dosyaları/PIPELINE_SISTEMI.md`
-
----
-
-## Dağıtım (Windows/macOS/Linux)
-
-- Detaylı dağıtım notları: `BeniOku dosyaları/README_DAGITIM.md`
-
-=======
->>>>>>> a6275d87ff3a4928c373c5f56a16a4ac161c8f6c
