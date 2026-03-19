@@ -1,9 +1,0 @@
-# Keep cross-platform scripts working
-*.sh text eol=lf
-*.yml text eol=lf
-*.yaml text eol=lf
-*.py text eol=lf
-*.md text eol=lf
-*.iss text eol=crlf
-*.ps1 text eol=crlf
-
