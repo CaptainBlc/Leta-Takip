@@ -1,8 +1,9 @@
 # Leta Takip
 
-**Özel eğitim merkezleri ve danışmanlık ofisleri için masaüstü yönetim paneli** — seans planlama, borç/ödeme, kasa defteri ve personel ücret takibini tek yerden yönetir. Veriler yerelde **SQLite** ile saklanır; arayüz **Tkinter** ve **ttkbootstrap** ile hazırlanmıştır.
+**Özel eğitim ve danışmanlık kurumları için masaüstü operasyon paneli** — seans planlama, borç/ödeme, kasa defteri ve personel ücret takibini tek uygulamada toplar.  
+Veriler yalnızca kurumun kendi bilgisayarında, **yerel SQLite** veritabanında tutulur; arayüz **Tkinter** ve **ttkbootstrap** ile geliştirilmiştir.
 
-*Desktop management app for therapy / education centers — session scheduling, billing, cash ledger, and staff compensation. Local-first SQLite; Tkinter + ttkbootstrap UI.*
+*Desktop ops center for education and counseling practices — sessions, billing, cash ledger, and staff payouts. Local-first SQLite; Tkinter + ttkbootstrap.*
 
 [![Build All Platforms](https://github.com/CaptainBlc/Leta-Takip/actions/workflows/build-all-platforms.yml/badge.svg)](https://github.com/CaptainBlc/Leta-Takip/actions/workflows/build-all-platforms.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -10,39 +11,44 @@
 
 ---
 
-## Öne çıkanlar
+## Gizlilik ve veri
 
-| Alan | Ne sunuyor? |
-|------|-------------|
-| **Seans** | Tarih, saat, oda ve terapist bazında planlama ve kayıt |
-| **Muhasebe** | Danışan borç/kalan, ödeme girişleri, haftalık alındı/alınmadı |
-| **Kasa** | Günlük giren–çıkan, raporlanabilir kasa yapısı |
-| **Personel** | Seans başı hakediş ve ödeme durumu |
-| **Yedekleme** | Açılışta otomatik yedek, eski yedekleri temizleme |
-| **Pipeline** | Danışan + terapist kombinasyonuna göre akıllı fiyat önerileri (`script/pipeline.py`) |
+- Bu depoda **gerçek danışan, kurum veya mali kayıt bulunmaz**; yalnızca uygulama kaynak kodu ve kurulum/dağıtım dosyaları yer alır.
+- Çalışma zamanında oluşan veritabanı, yedekler ve kurumsal dosyalar **bilgisayarda yerel olarak** saklanır; bunları repoya eklemeyin (ör. `*.db`, `Yedekler/`, `veriler/` zaten `.gitignore` ile dışarıda).
 
 ---
 
-## Teknolojiler
+## Öne çıkanlar
 
-- **Dil:** Python 3.11 (3.10+ uyumlu)
-- **Arayüz:** Tkinter, ttkbootstrap, tkcalendar
-- **Veri:** SQLite (pandas/openpyxl ile rapor/Excel; ReportLab ile PDF)
-- **Dağıtım:** PyInstaller (`Leta_Pipeline_Final.spec`), Inno Setup (Windows), macOS DMG/PKG betikleri
-- **CI:** GitHub Actions — `v*` etiketi veya manuel tetikleme ile Windows yapıları
+| Alan | Özet |
+|------|------|
+| **Seans** | Tarih, saat, oda ve uzman bazında planlama ve kayıt |
+| **Muhasebe** | Borç/kalan, ödemeler, haftalık alındı / alınmadı |
+| **Kasa** | Günlük gelir–gider ve raporlanabilir kasa |
+| **Personel** | Seans bazlı hakediş ve ödeme durumu |
+| **Yedekleme** | Açılışta otomatik yedek; sınırlı sayıda yedek tutma (rotasyon) |
+| **Akıllı varsayılanlar** | Danışan ve uzman seçimine göre tutar/oda önerileri |
+
+---
+
+## Teknoloji özeti
+
+- Python 3.11 · Tkinter, ttkbootstrap, tkcalendar · SQLite · pandas / openpyxl / ReportLab  
+- Paketleme: PyInstaller, Inno Setup (Windows), macOS DMG/PKG betikleri  
+- CI: GitHub Actions (etiket veya manuel tetikleme ile derleme)
 
 ---
 
 ## Hızlı başlangıç
 
-### Son kullanıcı (kurulum)
+### Kurulum (son kullanıcı)
 
-1. [Releases](https://github.com/CaptainBlc/Leta-Takip/releases) üzerinden güncel **Windows** kurulum paketini indirin (ör. `Leta_Takip_Setup_v*.exe`).
-2. Kurulumu tamamlayıp masaüstü kısayolundan başlatın.
+1. [Releases](https://github.com/CaptainBlc/Leta-Takip/releases) sayfasından güncel **Windows** kurulum paketini indirin.  
+2. Kurulum sihirbazını tamamlayıp uygulamayı başlatın.
 
-macOS / Linux ve gelişmiş kurulum: [README_DAGITIM](BeniOku%20dosalar%C4%B1/README_DAGITIM.md) ve [installer/README_SETUP](installer/README_SETUP.md).
+Diğer platformlar ve kurulum ayrıntıları: [installer/README_SETUP](installer/README_SETUP.md).
 
-### Geliştirici
+### Kaynak koddan çalıştırma (geliştirici)
 
 ```bash
 git clone https://github.com/CaptainBlc/Leta-Takip.git
@@ -54,49 +60,37 @@ pip install -r requirements.txt
 python -m script.main
 ```
 
-İsteğe bağlı geliştirme araçları: `pip install -r requirements-dev.txt`
+İsteğe bağlı araçlar: `pip install -r requirements-dev.txt`
 
 ---
 
-## Depo yapısı
+## Depo özeti
 
-| Yol | İçerik |
-|-----|--------|
-| `script/` | Uygulama kodu: `main.py` (giriş), `app_ui.py` (arayüz), `pipeline.py` (olay tabanlı veri akışı), `core/` (DB, yedek, log, platform, güvenlik vb.) |
-| `scripts/` | Derleme betikleri (Windows/Linux/macOS), test ve örnek PDF üretimi |
-| `installer/` | Inno Setup (`.iss`), macOS DMG/PKG kabuk betikleri |
-| `packaging/linux/` | Linux masaüstü girişi ve paketleme yardımcıları |
-| `BeniOku dosyaları/` | Dağıtım, pipeline, kurulum ve mimari notları (Türkçe dokümantasyon indeksi aşağıda) |
+| Yol | Açıklama |
+|-----|----------|
+| `script/` | Uygulama: giriş noktası, arayüz, iş mantığı ve `core/` altyapısı |
+| `scripts/` | Çoklu platform derleme ve yardımcı betikler |
+| `installer/` | Windows/macOS kurulum tanımları |
+| `packaging/linux/` | Linux masaüstü girişi |
 | `KULLANIM_KILAVUZU.txt` | Son kullanıcı için kısa kullanım özeti |
-| `cocuk_takip_formu_pdf_ornegi.py` | Örnek çocuk takip formu PDF üretimi (tek dosya yardımcı script) |
+
+Ek Türkçe teknik notlar geliştiriciler için `BeniOku dosyaları/` altında tutulmaktadır (kurulum, dağıtım, mimari); **herhangi bir kuruma özel veri içermez**.
 
 ---
 
-## Dokümantasyon (seçilmiş)
+## Derleme
 
-- **Dağıtım:** [README_DAGITIM](BeniOku%20dosalar%C4%B1/README_DAGITIM.md)  
-- **Kurulum / setup:** [README_SETUP (BeniOku)](BeniOku%20dosalar%C4%B1/README_SETUP.md) · [installer/README_SETUP](installer/README_SETUP.md)  
-- **Pipeline:** [PIPELINE_SISTEMI](BeniOku%20dosalar%C4%B1/PIPELINE_SISTEMI.md) · [PIPELINE_KULLANICI_KILAVUZU](BeniOku%20dosalar%C4%B1/PIPELINE_KULLANICI_KILAVUZU.md)  
-- **Sistem özeti:** [SISTEM_ACIKLAMALARI](BeniOku%20dosalar%C4%B1/SISTEM_ACIKLAMALARI.md)
-
-Tam liste için `BeniOku dosyaları/` klasörüne göz atın.
+- [`.github/workflows/build-all-platforms.yml`](.github/workflows/build-all-platforms.yml)  
+- Yerel Windows: `scripts/build_setup.ps1` (Inno Setup gerekir)
 
 ---
 
-## Build ve sürüm
+## Geri bildirim
 
-- Workflow: [.github/workflows/build-all-platforms.yml](.github/workflows/build-all-platforms.yml)
-- `v*` biçiminde etiket iterek veya **Actions** üzerinden **workflow dispatch** ile derleme alınabilir.
-- Yerel Windows derlemesi için: `scripts/build_setup.ps1` (Inno Setup gerekir).
-
----
-
-## Katkı ve geri bildirim
-
-Sorun bildirirken işletim sistemi, tekrar adımları ve mümkünse log/ekran görüntüsü eklemeniz çözümü hızlandırır.
+Hata bildirimlerinde işletim sistemi ve tekrarlanabilir adımları paylaşmanız yardımcı olur. **Ekran görüntüsü veya log eklerken kurum/danışan bilgisi içermediğinden emin olun.**
 
 ---
 
 ## Lisans
 
-Bu proje [MIT](LICENSE) lisansı ile sunulmaktadır.
+[MIT](LICENSE)
