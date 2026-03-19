@@ -40,7 +40,7 @@
 1. [Releases](https://github.com/CaptainBlc/Leta-Takip/releases) üzerinden güncel **Windows** kurulum paketini indirin (ör. `Leta_Takip_Setup_v*.exe`).
 2. Kurulumu tamamlayıp masaüstü kısayolundan başlatın.
 
-macOS / Linux ve gelişmiş kurulum: `BeniOku dosyaları/README_DAGITIM.md` ve `installer/README_SETUP.md`.
+macOS / Linux ve gelişmiş kurulum: [README_DAGITIM](BeniOku%20dosalar%C4%B1/README_DAGITIM.md) ve [installer/README_SETUP](installer/README_SETUP.md).
 
 ### Geliştirici
 
@@ -74,10 +74,10 @@ python -m script.main
 
 ## Dokümantasyon (seçilmiş)
 
-- **Dağıtım:** [BeniOku dosyaları/README_DAGITIM.md](BeniOku%20dosyaları/README_DAGITIM.md)  
-- **Kurulum / setup:** [BeniOku dosyaları/README_SETUP.md](BeniOku%20dosyaları/README_SETUP.md) · [installer/README_SETUP.md](installer/README_SETUP.md)  
-- **Pipeline:** [BeniOku dosyaları/PIPELINE_SISTEMI.md](BeniOku%20dosyaları/PIPELINE_SISTEMI.md) · [PIPELINE_KULLANICI_KILAVUZU.md](BeniOku%20dosyaları/PIPELINE_KULLANICI_KILAVUZU.md)  
-- **Sistem özeti:** [BeniOku dosyaları/SISTEM_ACIKLAMALARI.md](BeniOku%20dosyaları/SISTEM_ACIKLAMALARI.md)
+- **Dağıtım:** [README_DAGITIM](BeniOku%20dosalar%C4%B1/README_DAGITIM.md)  
+- **Kurulum / setup:** [README_SETUP (BeniOku)](BeniOku%20dosalar%C4%B1/README_SETUP.md) · [installer/README_SETUP](installer/README_SETUP.md)  
+- **Pipeline:** [PIPELINE_SISTEMI](BeniOku%20dosalar%C4%B1/PIPELINE_SISTEMI.md) · [PIPELINE_KULLANICI_KILAVUZU](BeniOku%20dosalar%C4%B1/PIPELINE_KULLANICI_KILAVUZU.md)  
+- **Sistem özeti:** [SISTEM_ACIKLAMALARI](BeniOku%20dosalar%C4%B1/SISTEM_ACIKLAMALARI.md)
 
 Tam liste için `BeniOku dosyaları/` klasörüne göz atın.
 
