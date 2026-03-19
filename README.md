@@ -73,8 +73,9 @@ python -m script.main
 | `installer/` | Windows/macOS kurulum tanımları |
 | `packaging/linux/` | Linux masaüstü girişi |
 | `KULLANIM_KILAVUZU.txt` | Son kullanıcı için kısa kullanım özeti |
+| `BeniOku dosyaları/` | Türkçe teknik belgeler: kurulum, dağıtım, mimari ve sorun giderme |
 
-Ek Türkçe teknik notlar geliştiriciler için `BeniOku dosyaları/` altında tutulmaktadır (kurulum, dağıtım, mimari); **herhangi bir kuruma özel veri içermez**.
+
 
 ---
 

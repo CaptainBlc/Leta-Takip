@@ -12,6 +12,7 @@ venv/
 
 # Cursor/IDE
 .cursor/
+.cursorrules
 .vscode/
 
 # OS
@@ -48,3 +49,19 @@ backup_v1_3_legacy_*/
 
 # Kullanılmayan modül klasörü
 leta_modules/
+
+# Dahili geliştirici notları (repoda yayımlanmaz)
+BeniOku dosyaları/CURSOR_CONTEXT.md
+BeniOku dosyaları/GEMINI_PROMPT.md
+BeniOku dosyaları/DIĞER_PC_GÜNCELLEME.md
+BeniOku dosyaları/GITHUB_PUSH_REHBERI.md
+BeniOku dosyaları/TAŞIMA_REHBERI.md
+BeniOku dosyaları/ENTERPRISE_GRADE_SUMMARY.md
+BeniOku dosyaları/GELECEK_OZELLIKLER_PLANI.md
+BeniOku dosyaları/PREDICTIVE_DASHBOARD_SUMMARY.md
+BeniOku dosyaları/PIPELINE_UPDATE_SUMMARY.md
+BeniOku dosyaları/OPSIYONEL_OZELLIKLER.md
+BeniOku dosyaları/OPSIYONEL_OZELLIKLER_OZET.md
+BeniOku dosyaları/PIPELINE_KULLANICI_KILAVUZU.md
+BeniOku dosyaları/SEANS_URETI_VE_ESLESME.md
+BeniOku dosyaları/UI_IMPROVEMENTS_ANALYSIS.md
