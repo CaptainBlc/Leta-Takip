@@ -1,6 +1,7 @@
 # Python
 __pycache__/
 *.py[cod]
+*.log
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -41,6 +42,9 @@ AppDir/
 
 # Archive folder (lokalde dursun, repoya gerek yok)
 ARCHIVE/
+
+# Eski sürüm yedekleri (repoda sergilenmesin)
+backup_v1_3_legacy_*/
 
 # Legacy modules (artık kullanılmıyor - kod leta_app.py içinde)
 leta_modules/
